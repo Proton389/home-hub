@@ -298,14 +298,15 @@ function askPassword(wrong) {
   });
 }
 
-// shortcut: сохраняется весь лист целиком, последняя запись побеждает; если два устройства правят один лист в одну секунду, одна правка потеряется. Станет мешать — перейти на API по строкам.
+// shortcut: игроки и предзаказы сохраняются листом целиком, последняя запись побеждает; если два устройства правят один лист в одну секунду, одна правка потеряется. Станет мешать — перейти на команды по строкам, как с партиями.
 // сохранения идут строго по очереди: иначе при быстрых кликах старый запрос может дойти позже нового и затереть его
 let saveQueue = Promise.resolve(), pending = 0;
-function save(key, msg) {
+const save = (key, msg) => send(() => ({ key, rows: db[key] }), msg);
+function send(body, msg) {  // body() собирает запрос в момент отправки, чтобы ушли самые свежие данные
   pending++;
-  return saveQueue = saveQueue.then(() => sendSave(key, msg)).finally(() => pending--);
+  return saveQueue = saveQueue.then(() => sendSave(body, msg)).finally(() => pending--);
 }
-async function sendSave(key, msg = 'Сохранено') {
+async function sendSave(body, msg = 'Сохранено') {
   let wrong = false;
   for (let attempt = 0; attempt < 3; attempt++) {
     if (!getPw()) {
@@ -315,12 +316,12 @@ async function sendSave(key, msg = 'Сохранено') {
     }
     try {
       // text/plain — чтобы браузер не слал предварительный запрос, который Apps Script не умеет принимать
-      const r = await fetch(API, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ key, rows: db[key], password: getPw() }) });
+      const r = await fetch(API, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ ...body(), password: getPw() }) });
       const res = await r.json();
       if (res.error === 'password') { setPw(''); wrong = true; continue; }
       if (res.error) throw new Error(res.error);
       toast(msg);
-      return true;
+      return res;
     } catch (e) {
       toast(e instanceof TypeError ? 'Не сохранилось: нет связи с Google-таблицей' : 'Не сохранилось: ' + e.message, true);
       return false;
@@ -360,10 +361,14 @@ function playsList() {
 async function addPlay(name, delta = 1) {
   let row = playsRow(name);
   if (!row) db.plays.push(row = { [PLAYS.name]: name, [PLAYS.count]: 0 });
-  row[PLAYS.count] = Math.max(0, num(row[PLAYS.count]) + delta);
+  const before = row[PLAYS.count];
+  row[PLAYS.count] = Math.max(0, num(before) + delta);
   if ($('#dialog').open) $('#dialog').close();
   render();
-  await save('plays', delta > 0 ? `+1 партия: ${String(name).trim()}` : 'Партия убрана');
+  // в таблице меняется только ячейка «Партий» этой игры на Лист1; прибавляет сам скрипт
+  const res = await send(() => ({ op: 'addPlay', name: String(name), delta }), delta > 0 ? `+1 партия: ${String(name).trim()}` : 'Партия убрана');
+  if (res) row[PLAYS.count] = res.value;  // число из таблицы — с учётом партий, записанных с других устройств
+  else { row[PLAYS.count] = before; render(); }  // не сохранилось — не показываем то, чего нет в таблице
 }
 
 document.addEventListener('click', e => {
@@ -416,7 +421,7 @@ function gameCard(g) {
 // Окно «Подробнее». Столбцы Лист1, которых нет на карточке (описание, ID на складе и т. п.), появляются здесь сами.
 function showGame(g) {
   const name = g[COL.name], link = String(g[COL.link] ?? '');
-  const onCard = new Set([COL.name, COL.min, COL.max, COL.time, COL.link, COL.rules, COL.cover, ...COL.types]);
+  const onCard = new Set([COL.name, COL.min, COL.max, COL.time, COL.link, COL.rules, COL.cover, PLAYS.count, ...COL.types]);
   const extra = Object.entries(g).filter(([k, v]) => !onCard.has(k) && String(v ?? '').trim());
   const d = $('#dialog');
   d.innerHTML = `<div class="dialog-body">
