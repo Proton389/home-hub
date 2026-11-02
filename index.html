@@ -44,6 +44,18 @@ a { color: inherit; }
 .nav a { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 10px; color: var(--muted); text-decoration: none; font-weight: 600; white-space: nowrap; }
 .nav a:hover { color: var(--text); background: var(--surface-2); }
 .nav a.active { color: var(--text); background: var(--accent-soft); }
+.collapse { position: absolute; top: 26px; right: -13px; z-index: 6; width: 26px; height: 26px; padding: 0; display: grid; place-items: center; border-radius: 50%; border: 1px solid var(--border); background: var(--surface); color: var(--muted); cursor: pointer; }
+.collapse:hover { color: var(--text); border-color: var(--accent); }
+.collapse:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.collapse svg { transition: transform .2s; }
+@media (min-width: 821px) {
+  .app { transition: grid-template-columns .2s; }
+  .app.collapsed { grid-template-columns: 76px minmax(0, 1fr); }
+  .collapsed .brand span, .collapsed .nav a span { display: none; }
+  .collapsed .brand { justify-content: center; padding-left: 0; padding-right: 0; }
+  .collapsed .nav a { justify-content: center; padding-left: 0; padding-right: 0; }
+  .collapsed .collapse svg { transform: rotate(180deg); }
+}
 main { padding: 28px clamp(16px, 4vw, 44px) 60px; max-width: 1320px; width: 100%; }
 .head { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 14px 24px; margin-bottom: 22px; }
 .head h1 { font-size: 26px; }
@@ -57,6 +69,7 @@ main { padding: 28px clamp(16px, 4vw, 44px) 60px; max-width: 1320px; width: 100%
   .brand { padding: 0; }
   .brand span { display: none; }
   .nav { flex-direction: row; overflow-x: auto; }
+  .collapse { display: none; }
   main { padding-top: 20px; }
   .tabs { width: 100%; }
   .tabs a { flex: 1; text-align: center; padding: 8px 6px; }
@@ -264,6 +277,7 @@ td.pname { font-weight: 600; padding-left: 12px; }
 <div class="app">
   <aside class="sidebar">
     <div class="brand"><div class="logo" id="logo"></div><span>Домашний хаб</span></div>
+    <button class="collapse" id="collapse" aria-expanded="true" aria-label="Свернуть панель" title="Свернуть панель"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg></button>
     <nav class="nav" id="nav" aria-label="Разделы"></nav>
   </aside>
   <main>
@@ -446,7 +460,7 @@ function route() {
   const [, b, t] = location.hash.split('/');
   branch = BRANCHES.find(x => x.id === b) || BRANCHES[0];
   tab = branch.tabs.find(x => x.id === t) || branch.tabs[0];
-  $('#nav').innerHTML = BRANCHES.map(x => `<a href="#/${x.id}" class="${x === branch ? 'active' : ''}" ${x === branch ? 'aria-current="page"' : ''}>${x.icon}<span>${esc(x.title)}</span></a>`).join('');
+  $('#nav').innerHTML = BRANCHES.map(x => `<a href="#/${x.id}" title="${esc(x.title)}" class="${x === branch ? 'active' : ''}" ${x === branch ? 'aria-current="page"' : ''}>${x.icon}<span>${esc(x.title)}</span></a>`).join('');
   $('#tabs').innerHTML = branch.tabs.map(x => `<a href="#/${branch.id}/${x.id}" class="${x === tab ? 'active' : ''}" ${x === tab ? 'aria-current="page"' : ''}>${esc(x.title)}</a>`).join('');
   document.title = `${tab.title} · ${branch.title}`;
   render();
@@ -1176,6 +1190,17 @@ function renderLinks(el) {
 /* ---------- Запуск ---------- */
 
 $('#logo').innerHTML = ICON.dice;
+// боковая панель сворачивается до иконок; выбор запоминается на этом устройстве
+function setCollapsed(on) {
+  $('.app').classList.toggle('collapsed', on);
+  const b = $('#collapse'), label = on ? 'Развернуть панель' : 'Свернуть панель';
+  b.setAttribute('aria-expanded', String(!on));
+  b.setAttribute('aria-label', label);
+  b.title = label;
+  try { localStorage.setItem('hub-sidebar', on ? 'collapsed' : ''); } catch {}
+}
+$('#collapse').onclick = () => setCollapsed(!$('.app').classList.contains('collapsed'));
+try { if (localStorage.getItem('hub-sidebar') === 'collapsed') setCollapsed(true); } catch {}
 window.addEventListener('hashchange', route);
 // другое устройство могло что-то поменять, пока вкладка была в фоне
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') refresh().catch(() => {}); });
