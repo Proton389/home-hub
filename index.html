@@ -51,6 +51,7 @@ a { color: inherit; }
 @media (min-width: 821px) {
   .app { transition: grid-template-columns .2s; }
   .app.collapsed { grid-template-columns: 76px minmax(0, 1fr); }
+  .collapsed main { max-width: none; }  /* свёрнутая панель — содержимое на всю ширину окна */
   .collapsed .brand span, .collapsed .nav a span { display: none; }
   .collapsed .brand { justify-content: center; padding-left: 0; padding-right: 0; }
   .collapsed .nav a { justify-content: center; padding-left: 0; padding-right: 0; }
