@@ -84,6 +84,17 @@ function validRows(rows) {
   });
 }
 
+// Обнулить статистику: в редакторе Apps Script выберите resetStats в списке функций вверху и нажмите «Выполнить».
+// «Партий» на Лист2 и «Партий»/«Побед» на Лист5 станут 0; названия игр и имена игроков останутся. Откат — «Файл → История версий».
+function resetStats() {
+  var ss = SpreadsheetApp.getActive();
+  [[SHEETS.plays, ['Партий']], [SHEETS.players, ['Партий', 'Побед']]].forEach(function (job) {
+    var sheet = sheetById(ss, job[0]), rows = readSheet(sheet);
+    rows.forEach(function (r) { job[1].forEach(function (col) { if (col in r) r[col] = 0; }); });
+    writeSheet(sheet, rows);
+  });
+}
+
 function json(obj) {
   return ContentService.createTextOutput(JSON.stringify(obj)).setMimeType(ContentService.MimeType.JSON);
 }

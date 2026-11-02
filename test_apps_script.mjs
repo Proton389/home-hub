@@ -40,7 +40,7 @@ function setup(password = 'secret') {
   vm.runInNewContext(readFileSync(new URL('./apps-script.gs', import.meta.url), 'utf8'), ctx);
   const get = () => JSON.parse(ctx.doGet().s);
   const post = body => JSON.parse(ctx.doPost({ postData: { contents: JSON.stringify(body) } }).s);
-  return { sheets, get, post };
+  return { sheets, get, post, ctx };
 }
 
 // чтение: заголовки становятся ключами, пустые строки отброшены
@@ -76,5 +76,15 @@ t = setup();
 t.sheets[1].f[1][0] = '=Лист1!A2';
 assert.match(t.post({ key: 'plays', rows: [], password: 'secret' }).error, /формулы/);
 assert.equal(t.get().plays.length, 3);
+
+// обнуление статистики: числа — 0, имена на месте, пустые строки убраны, другие листы не тронуты
+t = setup();
+t.sheets[3].v.splice(2, 0, ['', '', '']);  // пустая строка между игроками, как на настоящем Лист5
+t.ctx.resetStats();
+data = t.get();
+assert.deepEqual(data.plays.map(r => r['Партий']), ['0', '0', '0']);
+assert.deepEqual(data.plays.map(r => r['Название']), ['Ханаби', 'Skull', 'Old']);
+assert.deepEqual(data.players, [{ Игрок: 'Оверлорд', Партий: '0', Побед: '0' }]);
+assert.equal(data.preorders[0]['ДД/ММ/ГГГГ'], '01.08.2027');
 
 console.log('apps-script.gs: все проверки прошли');
