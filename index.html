@@ -374,7 +374,9 @@ async function requirePassword() {
     try {
       const res = await (await fetch(API, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ op: 'check', password: getPw() }) })).json();
       if (res.error === 'password') { setPw(''); wrong = true; continue; }
-      if (res.error) toast('Не получилось: ' + res.error, true);
+      // старый скрипт не знает команды «check» — значит, в таблице не развёрнута новая версия
+      if (res.error === 'неверный запрос') toast('Скрипт в таблице устарел: вставьте новый apps-script.gs и разверните «Новую версию»', true);
+      else if (res.error) toast('Не получилось: ' + res.error, true);
       return !res.error;
     } catch {
       toast('Нет связи с Google-таблицей', true);
