@@ -121,6 +121,8 @@ dialog::backdrop { background: rgba(0,0,0,.55); backdrop-filter: blur(3px); }
 .dialog-body .game { background: var(--surface-2); transform: none; }
 .dialog-actions { display: flex; gap: 8px; justify-content: flex-end; }
 .foot-actions { display: flex; gap: 6px; margin-left: auto; }
+.dialog-body .foot-actions { flex: 1 1 100%; flex-wrap: wrap; margin-left: 0; }  /* в окне игры кнопки идут слева направо и переносятся */
+#edit-game { margin-left: auto; }
 .game { cursor: pointer; }
 .game-title { all: unset; cursor: pointer; overflow-wrap: anywhere; }
 .game-title:hover { color: var(--accent); }
@@ -699,7 +701,7 @@ function showGame(g) {
     <div class="field"><span>Оценки${r ? ` · средняя ${r.avg.toFixed(1)} из 5` : ''}</span>
       <div class="ratings">${ratingRows || '<span class="muted">Сначала добавьте игроков во вкладке «Статистика»</span>'}</div>
       ${ratingRows ? '<div class="muted hint">Нажмите ту же звезду ещё раз, чтобы снять оценку.</div>' : ''}</div>
-    <div class="game-foot"><span class="muted">Партий: <b>${playsOf(name)}</b>${last ? ` · последний раз ${fmtDate(last)}` : ''}</span><span class="foot-actions">${rulesLink(g)}${/^https?:\/\//i.test(link) ? `<a class="btn sm" href="${esc(link)}" target="_blank" rel="noopener">${ICON.ext} Страница игры</a>` : ''}<button class="btn sm" id="edit-game">${ICON.edit} Изменить</button><button class="btn sm" data-play="${esc(name)}">+ партия</button></span></div>
+    <div class="game-foot"><span class="muted">Партий: <b>${playsOf(name)}</b>${last ? ` · последний раз ${fmtDate(last)}` : ''}</span><span class="foot-actions"><button class="btn sm primary" data-play="${esc(name)}">+ партия</button>${rulesLink(g)}${/^https?:\/\//i.test(link) ? `<a class="btn sm" href="${esc(link)}" target="_blank" rel="noopener">${ICON.ext} Страница игры</a>` : ''}<button class="btn sm ghost" id="edit-game">${ICON.edit} Изменить</button></span></div>
   </div>`;
   $('#close').onclick = () => d.close();
   $('#edit-game').onclick = () => showGameForm(g);
