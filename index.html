@@ -59,7 +59,7 @@ main { padding: 28px clamp(16px, 4vw, 44px) 60px; max-width: 1320px; width: 100%
 input, select { font: inherit; color: var(--text); background: var(--surface-2); border: 1px solid var(--border); border-radius: 10px; padding: 9px 11px; width: 100%; min-width: 0; }
 input:focus-visible, select:focus-visible, .btn:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 input[type=checkbox] { width: auto; accent-color: var(--accent); }
-.btn { font: inherit; font-weight: 600; display: inline-flex; align-items: center; justify-content: center; gap: 7px; padding: 9px 14px; border-radius: 10px; border: 1px solid var(--border); background: var(--surface-2); color: var(--text); cursor: pointer; white-space: nowrap; }
+.btn { font: inherit; font-weight: 600; display: inline-flex; align-items: center; justify-content: center; gap: 7px; padding: 9px 14px; border-radius: 10px; border: 1px solid var(--border); background: var(--surface-2); color: var(--text); cursor: pointer; white-space: nowrap; text-decoration: none; }
 .btn:hover:not(:disabled) { border-color: var(--accent); }
 .btn:disabled { opacity: .4; cursor: default; }
 .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
@@ -104,12 +104,18 @@ input[type=checkbox] { width: auto; accent-color: var(--accent); }
 .facts span { display: inline-flex; align-items: center; gap: 6px; }
 .badges { display: flex; flex-wrap: wrap; gap: 6px; min-height: 22px; }
 .badge { font-size: 12px; font-weight: 700; padding: 2px 9px; border-radius: 999px; color: var(--c); background: color-mix(in srgb, var(--c) 14%, transparent); }
-.game-foot { margin-top: auto; display: flex; align-items: center; justify-content: space-between; padding-top: 10px; border-top: 1px solid var(--border); font-size: 14px; }
+.game-foot { margin-top: auto; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: space-between; padding-top: 10px; border-top: 1px solid var(--border); font-size: 14px; }
 dialog { padding: 0; border: 1px solid var(--border); border-radius: 18px; background: var(--surface); color: var(--text); width: min(420px, calc(100% - 32px)); }
 dialog::backdrop { background: rgba(0,0,0,.55); backdrop-filter: blur(3px); }
 .dialog-body { padding: 22px; display: flex; flex-direction: column; gap: 14px; }
 .dialog-body .game { background: var(--surface-2); transform: none; }
 .dialog-actions { display: flex; gap: 8px; justify-content: flex-end; }
+.foot-actions { display: flex; gap: 6px; margin-left: auto; }
+.viewer { width: min(1000px, calc(100% - 16px)); height: calc(100% - 32px); max-height: none; }
+.viewer[open] { display: flex; flex-direction: column; }
+.viewer-head { display: flex; align-items: center; gap: 8px; padding: 10px 12px 10px 18px; border-bottom: 1px solid var(--border); }
+.viewer-head h3 { flex: 1; min-width: 0; font-size: 16px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.viewer iframe { flex: 1; width: 100%; border: 0; background: #fff; }
 
 /* статистика */
 .stack { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; }
@@ -174,6 +180,7 @@ td input:not([type=number]) { min-width: 130px; }
   </main>
 </div>
 <dialog id="dialog"></dialog>
+<dialog id="viewer" class="viewer"></dialog>
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
 <script>
@@ -181,7 +188,7 @@ td input:not([type=number]) { min-width: 130px; }
 const API = 'https://script.google.com/macros/s/AKfycbxJh44sSkzNkanxXTagXuV_7HagKqr-cFRtnDQWrk_u53YPjqj9SVZw_USHyeIRkQAT/exec';
 
 // Названия столбцов из Google-таблицы. Переименуете столбцы — поменяйте только здесь.
-const COL = { name: 'Название', min: 'Мин игроков', max: 'Макс игроков', time: 'Время', link: 'Ссылка', types: ['Coop', 'Noncoop', 'Traitor'] };
+const COL = { name: 'Название', min: 'Мин игроков', max: 'Макс игроков', time: 'Время', link: 'Ссылка', rules: 'Правила', types: ['Coop', 'Noncoop', 'Traitor'] };
 // Как типы подписаны на сайте (ключи — названия столбцов в таблице).
 const TYPE_LABEL = { Coop: 'Кооператив', Noncoop: 'Соревновательная', Traitor: 'С предателем' };
 const typeLabel = t => TYPE_LABEL[t] ?? t;
@@ -197,6 +204,7 @@ const ICON = {
   ext: svg('<path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>', 18),
   trash: svg('<path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>'),
   refresh: svg('<path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><path d="M21 3v5h-5"/>', 14),
+  book: svg('<path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/>', 14),
 };
 
 // Ветки сервиса. Новая ветка = ещё один объект в этом списке.
@@ -356,9 +364,33 @@ function gameCard(g) {
     <div class="game-top"><h3>${esc(name)}</h3>${/^https?:\/\//i.test(link) ? `<a class="ext" href="${esc(link)}" target="_blank" rel="noopener" title="Страница игры" aria-label="Страница игры ${esc(name)}">${ICON.ext}</a>` : ''}</div>
     <div class="facts"><span title="${esc(COL.min)} / ${esc(COL.max)}">${ICON.users}${esc(players)}</span><span title="${esc(COL.time)}">${ICON.clock}${esc(g[COL.time])} мин</span></div>
     <div class="badges">${COL.types.map((t, i) => num(g[t]) === 1 ? `<span class="badge t${i}">${esc(typeLabel(t))}</span>` : '').join('')}</div>
-    <div class="game-foot"><span class="muted">Партий: <b>${playsOf(name)}</b></span><button class="btn sm" data-play="${esc(name)}">+ партия</button></div>
+    <div class="game-foot"><span class="muted">Партий: <b>${playsOf(name)}</b></span><span class="foot-actions">${rulesLink(g)}<button class="btn sm" data-play="${esc(name)}">+ партия</button></span></div>
   </article>`;
 }
+
+// Правила: ссылка из столбца COL.rules. Файл с Google Диска открывается в окне сайта, остальные ссылки — в новой вкладке.
+const driveId = url => String(url).match(/drive\.google\.com\/(?:file\/d\/|open\?id=|uc\?(?:.*&)?id=)([\w-]{10,})/)?.[1];
+function rulesLink(g) {
+  const url = String(g[COL.rules] ?? '').trim();
+  return /^https?:\/\//i.test(url) ? `<a class="btn sm" href="${esc(url)}" target="_blank" rel="noopener" data-rules="${esc(g[COL.name])}">${ICON.book} Правила</a>` : '';
+}
+function showRules(name, url) {
+  const v = $('#viewer');
+  v.innerHTML = `<div class="viewer-head"><h3>${esc(String(name).trim())} — правила</h3>
+    <a class="btn sm" href="${esc(url)}" target="_blank" rel="noopener">${ICON.ext} В новой вкладке</a>
+    <button class="btn icon ghost" id="viewer-close" aria-label="Закрыть">✕</button></div>
+    <iframe src="https://drive.google.com/file/d/${driveId(url)}/preview" title="Правила: ${esc(name)}"></iframe>`;
+  $('#viewer-close').onclick = () => v.close();
+  v.onclick = e => { if (e.target === v) v.close(); };
+  v.onclose = () => { v.innerHTML = ''; };  // выгрузить PDF, а не держать его в фоне
+  v.showModal();
+}
+document.addEventListener('click', e => {
+  const a = e.target.closest('a[data-rules]');
+  if (!a || !driveId(a.href) || e.ctrlKey || e.metaKey || e.shiftKey) return;  // Ctrl+клик — как обычная ссылка
+  e.preventDefault();
+  showRules(a.dataset.rules, a.href);
+});
 
 function renderPicker(el) {
   const times = ['', 20, 30, 45, 60, 90, 120, 180, 240];
