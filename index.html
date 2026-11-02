@@ -118,6 +118,9 @@ dialog::backdrop { background: rgba(0,0,0,.55); backdrop-filter: blur(3px); }
 .game-title:hover { color: var(--accent); }
 .game-title:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
 .info-title { font-size: 19px; }
+.game-top h3 { flex: 1; min-width: 0; }
+.cover-thumb { flex: none; width: 56px; height: 56px; object-fit: cover; border-radius: 10px; background: var(--surface-2); }
+.cover { display: block; width: 100%; max-height: 260px; object-fit: contain; border-radius: 12px; background: var(--surface-2); }
 .info { margin: 0; display: grid; gap: 12px; }
 .info dt { font-size: 12px; font-weight: 700; color: var(--muted); }
 .info dd { margin: 2px 0 0; white-space: pre-line; overflow-wrap: anywhere; }
@@ -204,7 +207,7 @@ td input:not([type=number]) { min-width: 130px; }
 const API = 'https://script.google.com/macros/s/AKfycbxJh44sSkzNkanxXTagXuV_7HagKqr-cFRtnDQWrk_u53YPjqj9SVZw_USHyeIRkQAT/exec';
 
 // Названия столбцов из Google-таблицы. Переименуете столбцы — поменяйте только здесь.
-const COL = { name: 'Название', min: 'Мин игроков', max: 'Макс игроков', time: 'Время', link: 'Ссылка', rules: 'Правила', types: ['Coop', 'Noncoop', 'Traitor'] };
+const COL = { name: 'Название', min: 'Мин игроков', max: 'Макс игроков', time: 'Время', link: 'Ссылка', rules: 'Правила', cover: 'Обложка', types: ['Coop', 'Noncoop', 'Traitor'] };
 // Как типы подписаны на сайте (ключи — названия столбцов в таблице).
 const TYPE_LABEL = { Coop: 'Кооператив', Noncoop: 'Соревновательная', Traitor: 'С предателем' };
 const typeLabel = t => TYPE_LABEL[t] ?? t;
@@ -374,6 +377,13 @@ function filtered() {
   ).sort(SORTS[F.sort][1]);
 }
 
+// Обложка из столбца COL.cover: ссылка на файл Google Диска (превращается в картинку) или прямая ссылка на изображение.
+function coverImg(g, size, cls, alt) {
+  const url = String(g[COL.cover] ?? '').trim(), id = driveId(url);
+  const src = id ? `https://drive.google.com/thumbnail?id=${id}&sz=w${size}` : /^https?:\/\//i.test(url) ? url : '';
+  return src ? `<img class="${cls}" src="${esc(src)}" alt="${esc(alt)}" loading="lazy" referrerpolicy="no-referrer" onerror="this.remove()">` : '';
+}
+
 function gameFacts(g) {
   const players = num(g[COL.min]) === num(g[COL.max]) ? g[COL.min] : `${g[COL.min]}–${g[COL.max]}`;
   return `<div class="facts"><span title="${esc(COL.min)} / ${esc(COL.max)}">${ICON.users}${esc(players)}</span><span title="${esc(COL.time)}">${ICON.clock}${esc(g[COL.time])} мин</span></div>
@@ -383,7 +393,7 @@ function gameFacts(g) {
 function gameCard(g) {
   const name = g[COL.name], link = String(g[COL.link] ?? '');
   return `<article class="card game" data-gi="${db.games.indexOf(g)}">
-    <div class="game-top"><h3><button class="game-title" title="Подробнее">${esc(name)}</button></h3>${/^https?:\/\//i.test(link) ? `<a class="ext" href="${esc(link)}" target="_blank" rel="noopener" title="Страница игры" aria-label="Страница игры ${esc(name)}">${ICON.ext}</a>` : ''}</div>
+    <div class="game-top">${coverImg(g, 200, 'cover-thumb', '')}<h3><button class="game-title" title="Подробнее">${esc(name)}</button></h3>${/^https?:\/\//i.test(link) ? `<a class="ext" href="${esc(link)}" target="_blank" rel="noopener" title="Страница игры" aria-label="Страница игры ${esc(name)}">${ICON.ext}</a>` : ''}</div>
     ${gameFacts(g)}
     <div class="game-foot"><span class="muted">Партий: <b>${playsOf(name)}</b></span><span class="foot-actions">${rulesLink(g)}<button class="btn sm" data-play="${esc(name)}">+ партия</button></span></div>
   </article>`;
@@ -392,11 +402,12 @@ function gameCard(g) {
 // Окно «Подробнее». Столбцы Лист1, которых нет на карточке (описание, ID на складе и т. п.), появляются здесь сами.
 function showGame(g) {
   const name = g[COL.name], link = String(g[COL.link] ?? '');
-  const onCard = new Set([COL.name, COL.min, COL.max, COL.time, COL.link, COL.rules, ...COL.types]);
+  const onCard = new Set([COL.name, COL.min, COL.max, COL.time, COL.link, COL.rules, COL.cover, ...COL.types]);
   const extra = Object.entries(g).filter(([k, v]) => !onCard.has(k) && String(v ?? '').trim());
   const d = $('#dialog');
   d.innerHTML = `<div class="dialog-body">
     <div class="game-top"><h3 class="info-title">${esc(name)}</h3><button class="btn icon ghost" id="close" aria-label="Закрыть">✕</button></div>
+    ${coverImg(g, 800, 'cover', `Обложка: ${name}`)}
     ${gameFacts(g)}
     ${extra.length ? `<dl class="info">${extra.map(([k, v]) => `<div><dt>${esc(k)}</dt><dd>${esc(v)}</dd></div>`).join('')}</dl>` : '<div class="muted">Описание пока не добавлено.</div>'}
     <div class="game-foot"><span class="muted">Партий: <b>${playsOf(name)}</b></span><span class="foot-actions">${rulesLink(g)}${/^https?:\/\//i.test(link) ? `<a class="btn sm" href="${esc(link)}" target="_blank" rel="noopener">${ICON.ext} Страница игры</a>` : ''}<button class="btn sm" data-play="${esc(name)}">+ партия</button></span></div>
