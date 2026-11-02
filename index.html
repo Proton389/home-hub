@@ -50,6 +50,8 @@ main { padding: 28px clamp(16px, 4vw, 44px) 60px; max-width: 1320px; width: 100%
   .brand span { display: none; }
   .nav { flex-direction: row; overflow-x: auto; }
   main { padding-top: 20px; }
+  .tabs { width: 100%; }
+  .tabs a { flex: 1; text-align: center; padding: 8px 6px; }
 }
 
 /* общие элементы */
@@ -159,6 +161,12 @@ td input:not([type=number]) { min-width: 130px; }
   .pre-head { display: none; }
 }
 
+.link-card { display: flex; align-items: center; gap: 14px; text-decoration: none; transition: border-color .15s, transform .15s; }
+.link-card:hover { border-color: color-mix(in srgb, var(--accent) 60%, var(--border)); transform: translateY(-2px); }
+.link-card b { display: block; margin-bottom: 2px; }
+.link-card .muted { font-size: 13px; }
+.link-icon { flex: none; width: 40px; height: 40px; border-radius: 10px; display: grid; place-items: center; color: var(--accent); background: var(--accent-soft); }
+
 .toast { position: fixed; left: 50%; bottom: 22px; transform: translate(-50%, 16px); opacity: 0; pointer-events: none; transition: .2s; padding: 10px 16px; border-radius: 10px; font-weight: 600; background: var(--text); color: var(--bg); box-shadow: 0 8px 30px rgba(0,0,0,.3); max-width: calc(100% - 32px); }
 .toast.show { opacity: 1; transform: translate(-50%, 0); }
 .toast.err { background: var(--danger); color: #fff; }
@@ -213,6 +221,7 @@ const BRANCHES = [
     { id: 'picker', title: 'Подбор', render: renderPicker },
     { id: 'stats', title: 'Статистика', render: renderStats },
     { id: 'preorders', title: 'Предзаказы', render: renderPreorders },
+    { id: 'links', title: 'Полезное', render: renderLinks },
   ] },
 ];
 
@@ -646,6 +655,23 @@ function renderPreorders(el) {
     save('preorders', 'Предзаказ удалён');
     render();
   };
+}
+
+/* ---------- Полезное ---------- */
+
+// Новая ссылка — ещё одна строка: [подпись, адрес]
+const LINKS = [
+  ['Подбор протекторов', 'https://www.sleeveyourgames.com/'],
+  ['Музыка для настольных игр', 'https://melodice.org/'],
+  ['Предзаказы настолок', 'https://dicefest.ru/'],
+  ['Приложение для Авалона', 'https://akubara.github.io/avalon/'],
+  ['Приложение для крови на часовой башне', 'https://botc.games/?script=Trouble+Brewing'],
+];
+
+function renderLinks(el) {
+  el.innerHTML = `<div class="grid">${LINKS.map(([title, url]) => `<a class="card link-card" href="${esc(url)}" target="_blank" rel="noopener">
+    <span class="link-icon">${ICON.ext}</span>
+    <span><b>${esc(title)}</b><span class="muted">${esc(new URL(url).hostname.replace(/^www\./, ''))}</span></span></a>`).join('')}</div>`;
 }
 
 /* ---------- Запуск ---------- */
