@@ -1,0 +1,634 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Домашний хаб</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><rect x='2' y='2' width='20' height='20' rx='5' fill='%238b6cff'/><circle cx='8' cy='8' r='1.8' fill='white'/><circle cx='12' cy='12' r='1.8' fill='white'/><circle cx='16' cy='16' r='1.8' fill='white'/></svg>">
+<style>
+:root {
+  --bg: #0e1016; --surface: #161922; --surface-2: #1e222d; --border: #282d3a;
+  --text: #e9ebf1; --muted: #959cae; --accent: #8b6cff; --accent-soft: rgba(139,108,255,.15);
+  --t0: #3ecf8e; --t1: #5aa9ff; --t2: #ff6b6b; --warn: #ffb547; --danger: #ff6b6b;
+  --radius: 14px;
+  color-scheme: dark;
+}
+@media (prefers-color-scheme: light) {
+  :root {
+    --bg: #f4f5f9; --surface: #ffffff; --surface-2: #f0f1f6; --border: #e1e3eb;
+    --text: #1a1d26; --muted: #687083; --accent: #6a4cf5; --accent-soft: rgba(106,76,245,.1);
+    --t0: #12a66a; --t1: #2f7fe0; --t2: #e04848; --warn: #c27a00;
+    color-scheme: light;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.45 "Segoe UI", system-ui, -apple-system, Roboto, sans-serif; }
+h1, h2, h3 { margin: 0; line-height: 1.25; }
+a { color: inherit; }
+.muted { color: var(--muted); }
+
+/* каркас */
+.app { display: grid; grid-template-columns: 240px minmax(0, 1fr); min-height: 100vh; }
+.sidebar { position: sticky; top: 0; height: 100vh; padding: 20px 14px; background: var(--surface); border-right: 1px solid var(--border); }
+.brand { display: flex; align-items: center; gap: 10px; padding: 2px 8px 22px; font-weight: 700; font-size: 17px; }
+.logo { width: 34px; height: 34px; flex: none; border-radius: 10px; display: grid; place-items: center; color: #fff; background: linear-gradient(135deg, var(--accent), #ff8a5b); }
+.nav { display: flex; flex-direction: column; gap: 4px; }
+.nav a { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 10px; color: var(--muted); text-decoration: none; font-weight: 600; white-space: nowrap; }
+.nav a:hover { color: var(--text); background: var(--surface-2); }
+.nav a.active { color: var(--text); background: var(--accent-soft); }
+main { padding: 28px clamp(16px, 4vw, 44px) 60px; max-width: 1320px; width: 100%; }
+.head { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 14px 24px; margin-bottom: 22px; }
+.head h1 { font-size: 26px; }
+.tabs { display: flex; gap: 4px; padding: 4px; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; max-width: 100%; overflow-x: auto; }
+.tabs a { padding: 8px 16px; border-radius: 9px; color: var(--muted); text-decoration: none; font-weight: 600; white-space: nowrap; }
+.tabs a:hover { color: var(--text); }
+.tabs a.active { background: var(--accent); color: #fff; }
+@media (max-width: 820px) {
+  .app { grid-template-columns: minmax(0, 1fr); align-content: start; }
+  .sidebar { z-index: 5; height: auto; display: flex; align-items: center; gap: 14px; padding: 10px 16px; border-right: 0; border-bottom: 1px solid var(--border); }
+  .brand { padding: 0; }
+  .brand span { display: none; }
+  .nav { flex-direction: row; overflow-x: auto; }
+  main { padding-top: 20px; }
+}
+
+/* общие элементы */
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 18px; }
+.card-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+.card-head h2 { font-size: 17px; }
+input, select { font: inherit; color: var(--text); background: var(--surface-2); border: 1px solid var(--border); border-radius: 10px; padding: 9px 11px; width: 100%; min-width: 0; }
+input:focus-visible, select:focus-visible, .btn:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+input[type=checkbox] { width: auto; accent-color: var(--accent); }
+.btn { font: inherit; font-weight: 600; display: inline-flex; align-items: center; justify-content: center; gap: 7px; padding: 9px 14px; border-radius: 10px; border: 1px solid var(--border); background: var(--surface-2); color: var(--text); cursor: pointer; white-space: nowrap; }
+.btn:hover:not(:disabled) { border-color: var(--accent); }
+.btn:disabled { opacity: .4; cursor: default; }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.btn.primary:hover:not(:disabled) { filter: brightness(1.1); }
+.btn.ghost { background: transparent; border-color: transparent; color: var(--muted); }
+.btn.ghost:hover:not(:disabled) { color: var(--text); border-color: var(--border); }
+.btn.sm { padding: 5px 10px; font-size: 13px; }
+.btn.icon { padding: 6px; min-width: 32px; }
+.empty { padding: 40px 16px; text-align: center; color: var(--muted); }
+.check { display: inline-flex; align-items: center; gap: 7px; color: var(--muted); font-size: 14px; cursor: pointer; }
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-bottom: 18px; }
+.tile .v { font-size: 28px; font-weight: 700; line-height: 1.1; overflow-wrap: anywhere; }
+.tile.text .v { font-size: 20px; }
+.tile .l { margin-top: 4px; color: var(--muted); font-size: 13px; }
+.tile.t0 .v { color: var(--t0); } .tile.t1 .v { color: var(--t1); } .tile.t2 .v { color: var(--t2); }
+.add-row { display: flex; flex-wrap: wrap; gap: 10px; }
+.add-row input { flex: 1 1 180px; width: auto; }
+
+/* подбор */
+.filters { display: flex; flex-wrap: wrap; gap: 14px; align-items: flex-end; }
+.field { display: flex; flex-direction: column; gap: 6px; flex: 1 1 160px; }
+.field.wide { flex: 2 1 220px; }
+.field.fit { flex: 0 1 auto; }
+#random { flex: 1 0 auto; height: 42px; }
+.field > span { font-size: 13px; font-weight: 600; color: var(--muted); }
+.stepper { display: flex; gap: 6px; }
+.stepper input { text-align: center; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip { font: inherit; font-size: 13px; font-weight: 700; padding: 8px 12px; border-radius: 999px; border: 1px solid var(--border); background: var(--surface-2); color: var(--muted); cursor: pointer; }
+.chip[aria-pressed=true] { color: var(--c); border-color: var(--c); background: color-mix(in srgb, var(--c) 14%, transparent); }
+.t0 { --c: var(--t0); } .t1 { --c: var(--t1); } .t2 { --c: var(--t2); }
+.meta { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 16px 2px 12px; color: var(--muted); font-size: 14px; }
+.meta .spacer { flex: 1; }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 14px; }
+.game { display: flex; flex-direction: column; gap: 10px; transition: border-color .15s, transform .15s; }
+.game:hover { border-color: color-mix(in srgb, var(--accent) 60%, var(--border)); transform: translateY(-2px); }
+.game-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; }
+.game h3 { font-size: 16px; }
+.ext { flex: none; color: var(--muted); padding: 2px; border-radius: 6px; }
+.ext:hover { color: var(--accent); }
+.facts { display: flex; gap: 16px; color: var(--muted); font-size: 14px; }
+.facts span { display: inline-flex; align-items: center; gap: 6px; }
+.badges { display: flex; flex-wrap: wrap; gap: 6px; min-height: 22px; }
+.badge { font-size: 12px; font-weight: 700; padding: 2px 9px; border-radius: 999px; color: var(--c); background: color-mix(in srgb, var(--c) 14%, transparent); }
+.game-foot { margin-top: auto; display: flex; align-items: center; justify-content: space-between; padding-top: 10px; border-top: 1px solid var(--border); font-size: 14px; }
+dialog { padding: 0; border: 1px solid var(--border); border-radius: 18px; background: var(--surface); color: var(--text); width: min(420px, calc(100% - 32px)); }
+dialog::backdrop { background: rgba(0,0,0,.55); backdrop-filter: blur(3px); }
+.dialog-body { padding: 22px; display: flex; flex-direction: column; gap: 14px; }
+.dialog-body .game { background: var(--surface-2); transform: none; }
+.dialog-actions { display: flex; gap: 8px; justify-content: flex-end; }
+
+/* статистика */
+.stack { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; }
+.plays-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(290px, 1fr)); column-gap: 28px; margin-top: 8px; }
+.bar-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; align-items: center; padding: 9px 0; border-bottom: 1px solid var(--border); }
+.bar { height: 5px; margin-top: 6px; border-radius: 3px; background: linear-gradient(90deg, var(--accent), #ff8a5b); }
+.counter { display: flex; align-items: center; gap: 6px; }
+.counter b { min-width: 26px; text-align: center; }
+.table-wrap { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; }
+th { text-align: left; font-size: 12px; font-weight: 700; color: var(--muted); padding: 6px 8px; white-space: nowrap; }
+td { padding: 6px 4px; border-top: 1px solid var(--border); }
+td input { padding: 6px 8px; background: transparent; border-color: transparent; }
+td input:hover { border-color: var(--border); }
+td input[type=number] { width: 70px; }
+td input:not([type=number]) { min-width: 130px; }
+.rate { display: flex; align-items: center; gap: 8px; min-width: 100px; font-variant-numeric: tabular-nums; }
+.rate i { flex: 1; height: 5px; border-radius: 3px; background: var(--surface-2); overflow: hidden; }
+.rate i b { display: block; height: 100%; background: var(--t0); }
+.actions { display: flex; gap: 4px; justify-content: flex-end; }
+
+/* предзаказы */
+.month { margin-top: 22px; }
+.month h3 { font-size: 13px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); margin: 0 4px 8px; }
+.pre-list { padding: 6px; }
+.pre-row { display: grid; grid-template-columns: minmax(0, 1fr) 170px 150px 36px; gap: 8px; align-items: center; padding: 4px; border-radius: 10px; }
+.pre-row + .pre-row { border-top: 1px solid var(--border); border-radius: 0; }
+.pre-row input { background: transparent; border-color: transparent; }
+.pre-row input:hover { border-color: var(--border); }
+.pre-row input.pre-name { font-weight: 600; }
+.pre-head { padding: 0 11px; font-size: 12px; font-weight: 700; color: var(--muted); }
+.pre-head span { padding-left: 12px; }
+.when { font-size: 13px; font-weight: 600; color: var(--muted); }
+.when.soon { color: var(--t0); }
+.when.late { color: var(--warn); }
+@media (max-width: 640px) {
+  .pre-row { grid-template-columns: minmax(0, 1fr) 36px; }
+  .pre-row .pre-date { grid-column: 1; }
+  .pre-row .when { grid-column: 1; padding: 0 12px 6px; }
+  .pre-row > .btn { grid-row: 1; grid-column: 2; }
+  .pre-head { display: none; }
+}
+
+.toast { position: fixed; left: 50%; bottom: 22px; transform: translate(-50%, 16px); opacity: 0; pointer-events: none; transition: .2s; padding: 10px 16px; border-radius: 10px; font-weight: 600; background: var(--text); color: var(--bg); box-shadow: 0 8px 30px rgba(0,0,0,.3); max-width: calc(100% - 32px); }
+.toast.show { opacity: 1; transform: translate(-50%, 0); }
+.toast.err { background: var(--danger); color: #fff; }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="sidebar">
+    <div class="brand"><div class="logo" id="logo"></div><span>Домашний хаб</span></div>
+    <nav class="nav" id="nav" aria-label="Разделы"></nav>
+  </aside>
+  <main>
+    <div class="head">
+      <div><h1 id="title"></h1><div class="muted" id="subtitle"></div></div>
+      <nav class="tabs" id="tabs" aria-label="Вкладки раздела"></nav>
+    </div>
+    <div id="view"><div class="empty">Загрузка…</div></div>
+  </main>
+</div>
+<dialog id="dialog"></dialog>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<script>
+// Адрес веб-приложения Apps Script (заканчивается на /exec) — как его получить, написано в README.md.
+const API = '';
+
+// Названия столбцов из Google-таблицы. Переименуете столбцы — поменяйте только здесь.
+const COL = { name: 'Название', min: 'Мин игроков', max: 'Макс игроков', time: 'Время', link: 'Ссылка', types: ['Coop', 'Noncoop', 'Traitor'] };
+// Как типы подписаны на сайте (ключи — названия столбцов в таблице).
+const TYPE_LABEL = { Coop: 'Кооператив', Noncoop: 'Соревновательная', Traitor: 'С предателем' };
+const typeLabel = t => TYPE_LABEL[t] ?? t;
+const PLAYS = { name: 'Название', count: 'Партий' };
+const PRE = { name: 'Название', date: 'ДД/ММ/ГГГГ' };
+const PL = { name: 'Игрок', games: 'Партий', wins: 'Побед' };
+
+const svg = (p, s = 16) => `<svg viewBox="0 0 24 24" width="${s}" height="${s}" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${p}</svg>`;
+const ICON = {
+  dice: svg('<rect x="3" y="3" width="18" height="18" rx="4"/><circle cx="8.5" cy="8.5" r="1" fill="currentColor"/><circle cx="12" cy="12" r="1" fill="currentColor"/><circle cx="15.5" cy="15.5" r="1" fill="currentColor"/>', 18),
+  users: svg('<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>'),
+  clock: svg('<circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>'),
+  ext: svg('<path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>', 18),
+  trash: svg('<path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>'),
+  refresh: svg('<path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><path d="M21 3v5h-5"/>', 14),
+};
+
+// Ветки сервиса. Новая ветка = ещё один объект в этом списке.
+const BRANCHES = [
+  { id: 'games', title: 'Настольные игры', icon: ICON.dice, subtitle: () => `${db.games.length} ${plural(db.games.length, 'игра', 'игры', 'игр')} в коллекции`, tabs: [
+    { id: 'picker', title: 'Подбор', render: renderPicker },
+    { id: 'stats', title: 'Статистика', render: renderStats },
+    { id: 'preorders', title: 'Предзаказы', render: renderPreorders },
+  ] },
+];
+
+let db = { games: [], plays: [], preorders: [], players: [] };
+let branch, tab;
+
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const num = v => Number(String(v ?? '').replace(',', '.')) || 0;
+const norm = s => String(s ?? '').trim().toLowerCase();
+const byName = (a, b) => String(a).localeCompare(String(b), 'ru');
+const plural = (n, one, few, many) => { const a = Math.abs(n) % 100, b = a % 10; return a > 10 && a < 20 ? many : b === 1 ? one : b >= 2 && b <= 4 ? few : many; };
+const tile = (v, l, cls = '') => `<div class="card tile ${cls}"><div class="v">${esc(v)}</div><div class="l">${esc(l)}</div></div>`;
+
+let toastTimer;
+function toast(msg, err = false) {
+  const t = $('#toast');
+  t.textContent = msg;
+  t.className = 'toast show' + (err ? ' err' : '');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => t.className = 'toast', 2200);
+}
+
+async function loadData() {
+  const data = await (await fetch(API)).json();
+  if (data.error) throw new Error(data.error);
+  db = data;
+}
+
+const PW_KEY = 'hub-password';
+const getPw = () => { try { return localStorage.getItem(PW_KEY) || ''; } catch { return ''; } };
+const setPw = v => { try { v ? localStorage.setItem(PW_KEY, v) : localStorage.removeItem(PW_KEY); } catch {} };
+
+function askPassword(wrong) {
+  return new Promise(resolve => {
+    const d = $('#dialog');
+    if (d.open) d.close();
+    d.innerHTML = `<form class="dialog-body" id="pw-form">
+      <h3>Пароль для изменений</h3>
+      <div class="muted">${wrong ? 'Пароль не подошёл, попробуйте ещё раз.' : 'Смотреть может любой, а менять данные — только с паролем. Устройство его запомнит.'}</div>
+      <input type="password" name="pw" required autocomplete="current-password" aria-label="Пароль">
+      <div class="dialog-actions"><button type="button" class="btn ghost" id="pw-cancel">Отмена</button><button class="btn primary">Сохранить</button></div></form>`;
+    const f = $('#pw-form');
+    f.onsubmit = e => { e.preventDefault(); d.close(); resolve(f.elements.pw.value); };
+    $('#pw-cancel').onclick = () => { d.close(); resolve(''); };
+    d.oncancel = () => resolve('');  // Esc
+    d.onclick = null;
+    d.showModal();
+  });
+}
+
+// shortcut: сохраняется весь лист целиком, последняя запись побеждает; если два устройства правят один лист в одну секунду, одна правка потеряется. Станет мешать — перейти на API по строкам.
+// сохранения идут строго по очереди: иначе при быстрых кликах старый запрос может дойти позже нового и затереть его
+let saveQueue = Promise.resolve(), pending = 0;
+function save(key, msg) {
+  pending++;
+  return saveQueue = saveQueue.then(() => sendSave(key, msg)).finally(() => pending--);
+}
+async function sendSave(key, msg = 'Сохранено') {
+  let wrong = false;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    if (!getPw()) {
+      const pw = await askPassword(wrong);
+      if (!pw) { toast('Не сохранено: нужен пароль', true); return false; }
+      setPw(pw);
+    }
+    try {
+      // text/plain — чтобы браузер не слал предварительный запрос, который Apps Script не умеет принимать
+      const r = await fetch(API, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ key, rows: db[key], password: getPw() }) });
+      const res = await r.json();
+      if (res.error === 'password') { setPw(''); wrong = true; continue; }
+      if (res.error) throw new Error(res.error);
+      toast(msg);
+      return true;
+    } catch (e) {
+      toast(e instanceof TypeError ? 'Не сохранилось: нет связи с Google-таблицей' : 'Не сохранилось: ' + e.message, true);
+      return false;
+    }
+  }
+  toast('Не сохранено: неверный пароль', true);
+  return false;
+}
+
+function route() {
+  const [, b, t] = location.hash.split('/');
+  branch = BRANCHES.find(x => x.id === b) || BRANCHES[0];
+  tab = branch.tabs.find(x => x.id === t) || branch.tabs[0];
+  $('#nav').innerHTML = BRANCHES.map(x => `<a href="#/${x.id}" class="${x === branch ? 'active' : ''}" ${x === branch ? 'aria-current="page"' : ''}>${x.icon}<span>${esc(x.title)}</span></a>`).join('');
+  $('#tabs').innerHTML = branch.tabs.map(x => `<a href="#/${branch.id}/${x.id}" class="${x === tab ? 'active' : ''}" ${x === tab ? 'aria-current="page"' : ''}>${esc(x.title)}</a>`).join('');
+  document.title = `${tab.title} · ${branch.title}`;
+  render();
+}
+
+function render() {
+  $('#title').textContent = branch.title;
+  $('#subtitle').textContent = branch.subtitle?.() ?? '';
+  tab.render($('#view'));
+}
+
+/* ---------- Партии ---------- */
+
+const playsRow = name => db.plays.find(p => norm(p[PLAYS.name]) === norm(name));
+const playsOf = name => num(playsRow(name)?.[PLAYS.count]);
+
+function playsList() {
+  const list = db.plays.map(p => ({ name: p[PLAYS.name], n: num(p[PLAYS.count]) }));
+  for (const g of db.games) if (!playsRow(g[COL.name])) list.push({ name: g[COL.name], n: 0 });
+  return list;
+}
+
+async function addPlay(name, delta = 1) {
+  let row = playsRow(name);
+  if (!row) db.plays.push(row = { [PLAYS.name]: name, [PLAYS.count]: 0 });
+  row[PLAYS.count] = Math.max(0, num(row[PLAYS.count]) + delta);
+  if ($('#dialog').open) $('#dialog').close();
+  render();
+  await save('plays', delta > 0 ? `+1 партия: ${String(name).trim()}` : 'Партия убрана');
+}
+
+document.addEventListener('click', e => {
+  const b = e.target.closest('[data-play]');
+  if (b) addPlay(b.dataset.play);
+});
+
+/* ---------- Подбор ---------- */
+
+const F = { q: '', players: '', time: '', types: [], sort: 'name' };
+const SORTS = {
+  name: ['По названию', (a, b) => byName(a[COL.name], b[COL.name])],
+  short: ['Сначала короткие', (a, b) => num(a[COL.time]) - num(b[COL.time])],
+  rare: ['Реже всего играли', (a, b) => playsOf(a[COL.name]) - playsOf(b[COL.name])],
+  often: ['Чаще всего играли', (a, b) => playsOf(b[COL.name]) - playsOf(a[COL.name])],
+};
+
+function filtered() {
+  const q = norm(F.q), n = num(F.players), t = num(F.time);
+  return db.games.filter(g =>
+    (!q || norm(g[COL.name]).includes(q)) &&
+    (!n || (num(g[COL.min]) <= n && n <= num(g[COL.max]))) &&
+    (!t || num(g[COL.time]) <= t) &&
+    (!F.types.length || F.types.some(k => num(g[k]) === 1))
+  ).sort(SORTS[F.sort][1]);
+}
+
+function gameCard(g) {
+  const name = g[COL.name], link = String(g[COL.link] ?? '');
+  const players = num(g[COL.min]) === num(g[COL.max]) ? g[COL.min] : `${g[COL.min]}–${g[COL.max]}`;
+  return `<article class="card game">
+    <div class="game-top"><h3>${esc(name)}</h3>${/^https?:\/\//i.test(link) ? `<a class="ext" href="${esc(link)}" target="_blank" rel="noopener" title="Страница игры" aria-label="Страница игры ${esc(name)}">${ICON.ext}</a>` : ''}</div>
+    <div class="facts"><span title="${esc(COL.min)} / ${esc(COL.max)}">${ICON.users}${esc(players)}</span><span title="${esc(COL.time)}">${ICON.clock}${esc(g[COL.time])} мин</span></div>
+    <div class="badges">${COL.types.map((t, i) => num(g[t]) === 1 ? `<span class="badge t${i}">${esc(typeLabel(t))}</span>` : '').join('')}</div>
+    <div class="game-foot"><span class="muted">Партий: <b>${playsOf(name)}</b></span><button class="btn sm" data-play="${esc(name)}">+ партия</button></div>
+  </article>`;
+}
+
+function renderPicker(el) {
+  const times = ['', 20, 30, 45, 60, 90, 120, 180, 240];
+  el.innerHTML = `
+    <div class="card filters">
+      <label class="field wide"><span>Поиск</span><input id="f-q" type="search" placeholder="Название игры" value="${esc(F.q)}"></label>
+      <div class="field"><span>Сколько игроков</span>
+        <div class="stepper"><button class="btn icon" data-step="-1" aria-label="Меньше игроков">−</button><input id="f-players" type="number" min="1" inputmode="numeric" placeholder="любое" aria-label="Сколько игроков" value="${esc(F.players)}"><button class="btn icon" data-step="1" aria-label="Больше игроков">+</button></div></div>
+      <label class="field"><span>Время партии</span><select id="f-time">${times.map(v => `<option value="${v}" ${String(v) === F.time ? 'selected' : ''}>${v ? `до ${v} мин` : 'любое'}</option>`).join('')}</select></label>
+      <div class="field fit"><span>Тип</span><div class="chips">${COL.types.map((t, i) => `<button class="chip t${i}" data-type="${esc(t)}" aria-pressed="${F.types.includes(t)}">${esc(typeLabel(t))}</button>`).join('')}</div></div>
+      <label class="field"><span>Сортировка</span><select id="f-sort">${Object.entries(SORTS).map(([k, [title]]) => `<option value="${k}" ${k === F.sort ? 'selected' : ''}>${title}</option>`).join('')}</select></label>
+      <button class="btn primary" id="random">${ICON.dice} Случайная игра</button>
+    </div>
+    <div class="meta"><span id="count"></span><span class="spacer"></span>
+      <button class="btn ghost sm" id="reset">Сбросить фильтры</button>
+      <button class="btn ghost sm" id="refresh">${ICON.refresh} Обновить данные из таблицы</button></div>
+    <div class="grid" id="results"></div>`;
+
+  const showResults = () => {
+    const list = filtered();
+    $('#count').textContent = `Подходит ${list.length} из ${db.games.length}`;
+    $('#results').innerHTML = list.map(gameCard).join('') || '<div class="empty">Ничего не нашлось — ослабьте фильтры</div>';
+  };
+  $('#f-q').oninput = e => { F.q = e.target.value; showResults(); };
+  $('#f-players').oninput = e => { F.players = e.target.value; showResults(); };
+  $('#f-time').onchange = e => { F.time = e.target.value; showResults(); };
+  $('#f-sort').onchange = e => { F.sort = e.target.value; showResults(); };
+  el.querySelectorAll('[data-step]').forEach(b => b.onclick = () => {
+    const v = num(F.players) + num(b.dataset.step);
+    F.players = v >= 1 ? String(v) : '';
+    $('#f-players').value = F.players;
+    showResults();
+  });
+  el.querySelectorAll('[data-type]').forEach(b => b.onclick = () => {
+    const t = b.dataset.type;
+    F.types = F.types.includes(t) ? F.types.filter(x => x !== t) : [...F.types, t];
+    b.setAttribute('aria-pressed', F.types.includes(t));
+    showResults();
+  });
+  $('#reset').onclick = () => { Object.assign(F, { q: '', players: '', time: '', types: [], sort: 'name' }); render(); };
+  $('#random').onclick = () => showRandom();
+  $('#refresh').onclick = refreshGames;
+  showResults();
+}
+
+let lastPick;
+function showRandom() {
+  const list = filtered();
+  if (!list.length) return toast('Под фильтры ничего не подходит', true);
+  const pool = list.length > 1 ? list.filter(g => g !== lastPick) : list;
+  const g = lastPick = pool[Math.floor(Math.random() * pool.length)];
+  const d = $('#dialog');
+  d.innerHTML = `<div class="dialog-body">
+    <div class="muted">Выпало из ${list.length} подходящих:</div>
+    ${gameCard(g)}
+    <div class="dialog-actions"><button class="btn" id="again">${ICON.dice} Ещё раз</button><button class="btn ghost" id="close">Закрыть</button></div></div>`;
+  $('#again').onclick = showRandom;
+  $('#close').onclick = () => d.close();
+  d.onclick = e => { if (e.target === d) d.close(); };
+  if (!d.open) d.showModal();
+}
+
+async function refreshGames(e) {
+  const b = e.currentTarget;
+  b.disabled = true;
+  b.textContent = 'Загружаю…';
+  try {
+    await loadData();
+    toast(`Данные обновлены: ${db.games.length} ${plural(db.games.length, 'игра', 'игры', 'игр')}`);
+  } catch {
+    toast('Не удалось загрузить таблицу — есть ли интернет?', true);
+  }
+  render();
+}
+
+/* ---------- Статистика ---------- */
+
+const statsUI = { q: '', all: false };
+
+function renderStats(el) {
+  const list = playsList();
+  const total = list.reduce((s, x) => s + x.n, 0);
+  el.innerHTML = `
+    <div class="tiles">
+      ${tile(total, `${plural(total, 'партия сыграна', 'партии сыграно', 'партий сыграно')}`)}
+      ${tile(list.filter(x => x.n > 0).length, 'разных игр сыграно')}
+      ${tile(db.players.length, 'игроков')}
+      ${COL.types.map((t, i) => tile(db.games.filter(g => num(g[t]) === 1).length, `игр типа «${typeLabel(t)}»`, 't' + i)).join('')}
+    </div>
+    <div class="stack">
+      <section class="card">
+        <div class="card-head"><h2>Игроки</h2></div>
+        <div id="players"></div>
+        <form class="add-row" id="add-player" style="margin-top:12px"><input name="player" placeholder="Новый игрок" required aria-label="Имя нового игрока"><button class="btn primary">Добавить</button></form>
+      </section>
+      <section class="card">
+        <div class="card-head"><h2>Партии по играм</h2><label class="check"><input type="checkbox" id="s-all" ${statsUI.all ? 'checked' : ''}> показать все игры</label></div>
+        <input id="s-q" type="search" placeholder="Найти игру, чтобы записать партию…" value="${esc(statsUI.q)}" aria-label="Поиск игры">
+        <div id="plays-list" class="plays-grid"></div>
+      </section>
+    </div>`;
+
+  const showPlays = () => {
+    const q = norm(statsUI.q);
+    const rows = playsList().filter(x => (statsUI.all || q || x.n > 0) && norm(x.name).includes(q)).sort((a, b) => b.n - a.n || byName(a.name, b.name));
+    const max = Math.max(1, ...rows.map(x => x.n));
+    $('#plays-list').innerHTML = rows.map(x => `<div class="bar-row">
+        <div><div>${esc(x.name)}</div><div class="bar" style="width:${x.n / max * 100}%"></div></div>
+        <div class="counter"><button class="btn icon sm" data-minus="${esc(x.name)}" aria-label="Убрать партию" ${x.n ? '' : 'disabled'}>−</button><b>${x.n}</b><button class="btn icon sm" data-play="${esc(x.name)}" aria-label="Добавить партию">+</button></div>
+      </div>`).join('') || `<div class="empty">${q ? 'Такой игры нет' : 'Пока ни одной партии'}</div>`;
+  };
+  $('#s-q').oninput = e => { statsUI.q = e.target.value; showPlays(); };
+  $('#s-all').onchange = e => { statsUI.all = e.target.checked; showPlays(); };
+  $('#plays-list').onclick = e => { const b = e.target.closest('[data-minus]'); if (b) addPlay(b.dataset.minus, -1); };
+  $('#add-player').onsubmit = e => {
+    e.preventDefault();
+    db.players.push({ [PL.name]: e.target.elements.player.value.trim(), [PL.games]: 0, [PL.wins]: 0 });
+    save('players', 'Игрок добавлен');
+    render();
+  };
+  showPlays();
+  renderPlayers();
+}
+
+function renderPlayers() {
+  const box = $('#players');
+  const rows = db.players.map((p, i) => [p, i]).sort(([a], [b]) => num(b[PL.wins]) - num(a[PL.wins]) || num(b[PL.games]) - num(a[PL.games]));
+  box.innerHTML = rows.length ? `<div class="table-wrap"><table>
+    <thead><tr><th>${esc(PL.name)}</th><th>${esc(PL.games)}</th><th>${esc(PL.wins)}</th><th>% побед</th><th></th></tr></thead>
+    <tbody>${rows.map(([p, i]) => {
+      const g = num(p[PL.games]), w = num(p[PL.wins]), rate = g ? Math.round(w / g * 100) : null;
+      return `<tr>
+        <td><input data-i="${i}" data-k="${esc(PL.name)}" value="${esc(p[PL.name])}" aria-label="Имя"></td>
+        <td><input type="number" min="0" data-i="${i}" data-k="${esc(PL.games)}" value="${g}" aria-label="${esc(PL.games)}"></td>
+        <td><input type="number" min="0" data-i="${i}" data-k="${esc(PL.wins)}" value="${w}" aria-label="${esc(PL.wins)}"></td>
+        <td><div class="rate"><i><b style="width:${rate ?? 0}%"></b></i>${rate == null ? '—' : rate + '%'}</div></td>
+        <td><div class="actions">
+          <button class="btn sm" data-win="${i}" title="Победил: +1 партия и +1 победа">+ победа</button>
+          <button class="btn sm" data-loss="${i}" title="Проиграл: +1 партия">+ партия</button>
+          <button class="btn icon ghost sm" data-del="${i}" title="Удалить игрока" aria-label="Удалить игрока">${ICON.trash}</button>
+        </div></td></tr>`;
+    }).join('')}</tbody></table></div>` : '<div class="empty">Игроков пока нет</div>';
+
+  box.onchange = e => {
+    const t = e.target, p = db.players[t.dataset.i];
+    if (!p) return;
+    p[t.dataset.k] = t.type === 'number' ? Math.max(0, Math.round(num(t.value))) : t.value;
+    save('players');
+    renderPlayers();
+  };
+  box.onclick = e => {
+    const b = e.target.closest('button'), p = b && db.players[b.dataset.win ?? b.dataset.loss ?? b.dataset.del];
+    if (!p) return;
+    if (b.dataset.del != null) {
+      if (!confirm(`Удалить игрока «${p[PL.name]}» вместе со статистикой?`)) return;
+      db.players.splice(b.dataset.del, 1);
+    } else {
+      p[PL.games] = num(p[PL.games]) + 1;
+      if (b.dataset.win != null) p[PL.wins] = num(p[PL.wins]) + 1;
+    }
+    save('players', b.dataset.del != null ? 'Игрок удалён' : `${String(p[PL.name]).trim()}: ${b.dataset.win != null ? '+1 победа' : '+1 партия'}`);
+    render();
+  };
+}
+
+/* ---------- Предзаказы ---------- */
+
+const MONTHS = ['Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь', 'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь'];
+const pad = n => String(n).padStart(2, '0');
+function parseDate(s) {  // "01.12.2026", "01/12/2026" или "2026-12-01" → Date
+  const t = String(s ?? '').trim(), iso = t.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+  const m = iso ? [t, iso[3], iso[2], iso[1]] : t.match(/^(\d{1,2})[./](\d{1,2})[./](\d{4})$/);
+  if (!m) return null;
+  const d = new Date(+m[3], m[2] - 1, +m[1]);
+  return d.getMonth() === m[2] - 1 ? d : null;  // отсекает несуществующие даты вроде 31.02
+}
+const toISO = d => d ? `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}` : '';
+const fromISO = s => { const [y, m, d] = String(s).split('-'); return y && m && d ? `${d}.${m}.${y}` : ''; };
+
+function until(d) {
+  if (!d) return ['дата не указана', ''];
+  const t = new Date(); t.setHours(0, 0, 0, 0);
+  const days = Math.round((d - t) / 864e5);
+  if (days < 0) return ['срок прошёл — пришёл?', 'late'];
+  if (days === 0) return ['сегодня', 'soon'];
+  if (days <= 60) return [`через ${days} ${plural(days, 'день', 'дня', 'дней')}`, days <= 14 ? 'soon' : ''];
+  const m = Math.round(days / 30.44);
+  return [`через ${m} ${plural(m, 'месяц', 'месяца', 'месяцев')}`, ''];
+}
+
+function renderPreorders(el) {
+  const items = db.preorders.map((p, i) => ({ p, i, d: parseDate(p[PRE.date]) }))
+    .sort((a, b) => (a.d ?? 9e15) - (b.d ?? 9e15) || byName(a.p[PRE.name], b.p[PRE.name]));
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const next = items.find(x => x.d && x.d >= today);
+  const groups = [];
+  for (const x of items) {
+    const label = x.d ? `${MONTHS[x.d.getMonth()]} ${x.d.getFullYear()}` : 'Без даты';
+    if (groups.at(-1)?.label !== label) groups.push({ label, items: [] });
+    groups.at(-1).items.push(x);
+  }
+
+  el.innerHTML = `
+    <div class="tiles">
+      ${tile(items.length, plural(items.length, 'предзаказ', 'предзаказа', 'предзаказов'))}
+      ${next ? tile(next.p[PRE.name], `ближайший — ${until(next.d)[0]}`, 'text') : ''}
+      ${tile(items.filter(x => x.d && x.d.getFullYear() === today.getFullYear()).length, `придёт в ${today.getFullYear()} году`)}
+    </div>
+    <form class="card add-row" id="add-pre">
+      <input name="game" placeholder="Название игры" required aria-label="Название игры">
+      <input name="date" type="date" aria-label="Дата прихода" style="flex:0 1 190px">
+      <button class="btn primary">Добавить предзаказ</button>
+    </form>
+    ${items.length ? `<div class="pre-row pre-head" style="margin-top:18px"><span>${esc(PRE.name)}</span><span>${esc(PRE.date)}</span><span></span><span></span></div>` : '<div class="empty">Предзаказов нет</div>'}
+    <div id="pre-list">${groups.map(g => `<section class="month"><h3>${g.label} · ${g.items.length}</h3><div class="card pre-list">
+      ${g.items.map(({ p, i, d }) => {
+        const [text, cls] = until(d);
+        return `<div class="pre-row">
+          <input class="pre-name" data-i="${i}" value="${esc(p[PRE.name])}" aria-label="Название">
+          <input class="pre-date" type="date" data-i="${i}" value="${toISO(d)}" aria-label="Дата прихода">
+          <span class="when ${cls}">${text}</span>
+          <button class="btn icon ghost" data-del="${i}" title="Удалить предзаказ" aria-label="Удалить предзаказ">${ICON.trash}</button>
+        </div>`;
+      }).join('')}</div></section>`).join('')}</div>`;
+
+  $('#add-pre').onsubmit = e => {
+    e.preventDefault();
+    const f = e.target;
+    db.preorders.push({ [PRE.name]: f.elements.game.value.trim(), [PRE.date]: fromISO(f.elements.date.value) });
+    save('preorders', 'Предзаказ добавлен');
+    render();
+  };
+  const list = $('#pre-list');
+  let regroup = false;
+  list.onchange = e => {
+    const t = e.target, p = db.preorders[t.dataset.i];
+    if (!p) return;
+    if (t.type === 'date') {
+      p[PRE.date] = fromISO(t.value);
+      const [text, cls] = until(parseDate(p[PRE.date]));
+      t.nextElementSibling.textContent = text;
+      t.nextElementSibling.className = 'when ' + cls;
+      regroup = true;
+    } else p[PRE.name] = t.value;
+    save('preorders');
+  };
+  // пересортировать по месяцам, только когда фокус ушёл из списка, иначе ввод даты сбивается
+  list.onfocusout = e => { if (regroup && !list.contains(e.relatedTarget)) render(); };
+  list.onclick = e => {
+    const b = e.target.closest('[data-del]'), p = b && db.preorders[b.dataset.del];
+    if (!p || !confirm(`Удалить предзаказ «${p[PRE.name]}»?`)) return;
+    db.preorders.splice(b.dataset.del, 1);
+    save('preorders', 'Предзаказ удалён');
+    render();
+  };
+}
+
+/* ---------- Запуск ---------- */
+
+$('#logo').innerHTML = ICON.dice;
+window.addEventListener('hashchange', route);
+// другое устройство могло что-то поменять, пока вкладка была в фоне
+document.addEventListener('visibilitychange', async () => {
+  if (document.visibilityState !== 'visible' || pending || $('#dialog').open || document.activeElement?.matches('input')) return;
+  try { await loadData(); render(); } catch {}
+});
+if (!API) $('#view').innerHTML = '<div class="empty">Сайт ещё не подключён к Google-таблице: впишите адрес Apps Script в строку <code>const API</code> в index.html (см. README.md).</div>';
+else loadData().then(route, e => {
+  $('#view').innerHTML = `<div class="empty">Не удалось загрузить данные из Google-таблицы${e instanceof TypeError ? ' — есть ли интернет?' : ': ' + esc(e.message)}</div>`;
+});
+</script>
+</body>
+</html>
