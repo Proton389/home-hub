@@ -42,6 +42,18 @@ function doPost(e) {
       saveGame(ss, req.original, f);
       return json({ ok: true });
     }
+    if (req.op === 'renamePlayer') {
+      if (!text(req.from, 100) || !names([req.to]) || !req.to.trim()) return bad;
+      lock.waitLock(20000);
+      renamePlayer(ss, req.from.trim(), req.to.trim());
+      return json({ ok: true });
+    }
+    if (req.op === 'deleteGame') {
+      if (!text(req.name, 200)) return bad;
+      lock.waitLock(20000);
+      deleteGame(ss, req.name);
+      return json({ ok: true });
+    }
     if (req.op === 'log') {
       if (!text(req.game, 200) || !text(req.date, 20) || !names(req.players) || !req.players.length || !names(req.winners) || !(req.note === undefined || text(req.note, 500, true))) return bad;
       lock.waitLock(20000);
@@ -177,6 +189,60 @@ function saveGame(ss, original, fields) {
   syncCounters(ss);  // новой игре — 0 партий, переименованной — её партии из журнала
 }
 
+// Переименовать игрока на Лист5, в журнале и оценках. Если новое имя уже занято — игроки объединяются
+// (если оба оценили одну игру, остаётся оценка того, в кого объединяют).
+function renamePlayer(ss, from, to) {
+  var same = norm(from) === norm(to), players = sheetById(ss, SHEETS.players);
+  if (players.getLastRow() > 1) {
+    var v = players.getDataRange().getDisplayValues(), col = v[0].indexOf(PLAYER_NAME), fromRow = 0, merge = false;
+    if (col < 0) throw new Error('На листе игроков нет столбца «' + PLAYER_NAME + '»');
+    for (var r = 1; r < v.length; r++) {
+      if (!fromRow && norm(v[r][col]) === norm(from)) fromRow = r + 1;
+      else if (!same && norm(v[r][col]) === norm(to)) merge = true;
+    }
+    if (fromRow && merge) players.deleteRow(fromRow);
+    else if (fromRow) players.getRange(fromRow, col + 1).setValue(safe(to));
+  }
+  var log = ss.getSheetByName(LOG_SHEET);
+  if (log && log.getLastRow() > 1) {
+    var lv = log.getDataRange().getDisplayValues();
+    ['Игроки', 'Победители'].forEach(function (h) {
+      var c = lv[0].indexOf(h);
+      if (c < 0) return;
+      var out = lv.slice(1).map(function (row) {
+        var seen = {};
+        return [safe(splitNames(row[c]).map(function (n) { return norm(n) === norm(from) ? to : n; })
+          .filter(function (n) { var k = norm(n); return seen[k] ? false : (seen[k] = true); }).join(', '))];
+      });
+      if (out.some(function (x, i) { return x[0] !== lv[i + 1][c]; })) log.getRange(2, c + 1, out.length, 1).setValues(out);
+    });
+  }
+  var ratings = ss.getSheetByName(RATINGS_SHEET);
+  if (ratings && ratings.getLastRow() > 1) {
+    var rv = ratings.getDataRange().getDisplayValues(), gi = rv[0].indexOf('Игра'), pi = rv[0].indexOf('Игрок'), has = {};
+    rv.slice(1).forEach(function (row) { if (norm(row[pi]) === norm(to)) has[norm(row[gi])] = true; });
+    for (var k = rv.length - 1; k >= 1; k--) {  // снизу вверх: удаление строки не сдвигает ещё не просмотренные
+      if (norm(rv[k][pi]) !== norm(from)) continue;
+      if (!same && has[norm(rv[k][gi])]) ratings.deleteRow(k + 1);
+      else ratings.getRange(k + 1, pi + 1).setValue(safe(to));
+    }
+  }
+  syncCounters(ss);
+}
+
+// Удалить игру из коллекции. Записи журнала остаются (это история), оценки игры удаляются.
+function deleteGame(ss, name) {
+  var sheet = sheetById(ss, SHEETS.games), row = findRow(sheet, [GAME_NAME], [name]);
+  if (!row) throw new Error('Игры «' + name.trim() + '» нет в таблице — обновите страницу');
+  sheet.deleteRow(row);
+  var ratings = ss.getSheetByName(RATINGS_SHEET);
+  if (ratings && ratings.getLastRow() > 1) {
+    var v = ratings.getDataRange().getDisplayValues(), gi = v[0].indexOf('Игра');
+    for (var r = v.length - 1; r >= 1; r--) if (norm(v[r][gi]) === norm(name)) ratings.deleteRow(r + 1);
+  }
+  syncCounters(ss);
+}
+
 // Пересчитать счётчики из журнала: «Партий» на Лист1, «Партий»/«Побед» на Лист5. Новые игроки из журнала дописываются на Лист5.
 function syncCounters(ss) {
   var games = {}, plays = {}, wins = {}, seen = {};
@@ -219,6 +285,25 @@ function resetStats() {
   var ss = SpreadsheetApp.getActive(), log = ss.getSheetByName(LOG_SHEET);
   if (log && log.getLastRow() > 1) log.deleteRows(2, log.getLastRow() - 1);
   syncCounters(ss);
+}
+
+// Резервная копия всей таблицы в папку на Google Диске; хранятся последние BACKUP_KEEP копий, старые уходят в корзину.
+// Один раз выберите setupMonthlyBackup и нажмите «Выполнить» — дальше копия делается сама 1-го числа каждого месяца.
+var BACKUP_FOLDER = 'Домашний хаб — резервные копии', BACKUP_KEEP = 12;
+function backupMonthly() {
+  var ss = SpreadsheetApp.getActive(), found = DriveApp.getFoldersByName(BACKUP_FOLDER);
+  var folder = found.hasNext() ? found.next() : DriveApp.createFolder(BACKUP_FOLDER);
+  var stamp = Utilities.formatDate(new Date(), ss.getSpreadsheetTimeZone(), 'yyyy-MM-dd');
+  DriveApp.getFileById(ss.getId()).makeCopy(ss.getName() + ' — копия ' + stamp, folder);
+  var files = [], it = folder.getFiles();
+  while (it.hasNext()) files.push(it.next());
+  files.sort(function (a, b) { return b.getDateCreated() - a.getDateCreated(); });
+  files.slice(BACKUP_KEEP).forEach(function (f) { f.setTrashed(true); });
+}
+function setupMonthlyBackup() {
+  ScriptApp.getProjectTriggers().forEach(function (t) { if (t.getHandlerFunction() === 'backupMonthly') ScriptApp.deleteTrigger(t); });
+  ScriptApp.newTrigger('backupMonthly').timeBased().onMonthDay(1).atHour(4).create();
+  backupMonthly();  // первая копия сразу — заодно Google один раз спросит разрешение на Диск
 }
 
 function norm(s) { return String(s === undefined || s === null ? '' : s).trim().toLowerCase(); }

@@ -36,8 +36,24 @@ function setup({ password = 'secret' } = {}) {
     new FakeSheet(489614522, 'Лист3', [['Название', 'ДД/ММ/ГГГГ', 'Заметка', ''], ['TES', '01.08.2027', 'коробка', 'без заголовка']]),
     new FakeSheet(515997837, 'Лист5', [['Игрок', 'Партий', 'Побед'], ['Оверлорд', '0', '0'], ['Азраэль ', '0', '0']]),
   ];
+  const drive = { folders: [], copies: [], trashed: [], triggers: [] };
   const ctx = {
+    DriveApp: {
+      getFoldersByName: n => { const f = drive.folders.filter(x => x.name === n); return { hasNext: () => f.length > 0, next: () => f.shift() }; },
+      createFolder: n => { const f = { name: n, files: [], getFiles() { const a = [...this.files]; return { hasNext: () => a.length > 0, next: () => a.shift() }; } }; drive.folders.push(f); return f; },
+      getFileById: () => ({ makeCopy: (name, folder) => {
+        const c = { name, n: drive.copies.length, getDateCreated() { return new Date(2026, 0, 1 + this.n); }, setTrashed() { drive.trashed.push(this.n); } };
+        drive.copies.push(c); folder.files.push(c); return c;
+      } }),
+    },
+    ScriptApp: {
+      getProjectTriggers: () => drive.triggers,
+      deleteTrigger: tr => drive.triggers.splice(drive.triggers.indexOf(tr), 1),
+      newTrigger: fn => { const tr = { fn, getHandlerFunction: () => fn }; const b = { timeBased: () => b, onMonthDay: d => { tr.day = d; return b; }, atHour: h => { tr.hour = h; return b; }, create: () => drive.triggers.push(tr) }; return b; },
+    },
+    Utilities: { formatDate: d => d.toISOString().slice(0, 10) },
     SpreadsheetApp: { getActive: () => ({
+      getId: () => 'sheet-id', getName: () => 'Хаб', getSpreadsheetTimeZone: () => 'Europe/Moscow',
       getSheets: () => sheets,
       getSheetByName: name => sheets.find(s => s.name === name) ?? null,
       insertSheet: name => { const s = new FakeSheet(1000 + sheets.length, name); sheets.push(s); return s; },
@@ -51,7 +67,7 @@ function setup({ password = 'secret' } = {}) {
   const post = body => JSON.parse(ctx.doPost({ postData: { contents: JSON.stringify({ password: 'secret', ...body }) } }).s);
   const sheet = name => sheets.find(s => s.name === name);
   const col = (name, header) => { const s = sheet(name); const i = s.v[0].indexOf(header); return s.v.slice(1).map(r => String(r[i] ?? '')); };
-  return { sheets, get, post, ctx, sheet, col };
+  return { sheets, get, post, ctx, sheet, col, drive };
 }
 const play = (game, players, winners = [], extra = {}) => ({ op: 'log', date: '10.11.2026', game, players, winners, ...extra });
 
@@ -159,5 +175,46 @@ assert.deepEqual([data.log[0]['Игра'], data.ratings[0]['Игра']], ['Skull
 t.sheet('Лист1').f[1][3] = '=A1';  // формула в изменяемой ячейке — отказ, ничего не меняется
 assert.match(t.post({ op: 'saveGame', original: 'Ханаби', fields: { Название: 'Ханаби', 'Где искать': 'другое' } }).error, /формулы/);
 assert.equal(t.sheet('Лист1').v[1][3], 'Шкаф F');
+
+// переименование игрока: Лист5, журнал (игроки и победители), оценки
+t = setup();
+t.post(play('Ханаби', ['Оверлорд', 'Азраэль'], ['Азраэль']));
+t.post(play('Skull', ['Азраэль'], []));
+t.post({ op: 'rate', game: 'Ханаби', player: 'Азраэль', value: 5 });
+t.post({ op: 'rate', game: 'Skull', player: 'Азраэль', value: 2 });
+t.post({ op: 'rate', game: 'Ханаби', player: 'Оверлорд', value: 3 });
+for (const bad of [{ from: '', to: 'X' }, { from: 'Азраэль', to: '' }, { from: 'Азраэль', to: 'С, запятой' }]) assert.ok(t.post({ op: 'renamePlayer', ...bad }).error, JSON.stringify(bad));
+assert.deepEqual(t.post({ op: 'renamePlayer', from: 'азраэль ', to: 'Азраэль Великий' }), { ok: true });
+data = t.get();
+assert.deepEqual(data.players.map(p => [p['Игрок'], p['Партий'], p['Побед']]), [['Оверлорд', '1', '0'], ['Азраэль Великий', '2', '1']]);
+assert.deepEqual(data.log.map(e => [e['Игроки'], e['Победители']]), [['Оверлорд, Азраэль Великий', 'Азраэль Великий'], ['Азраэль Великий', '']]);
+assert.deepEqual(data.ratings.map(r => r['Игрок']), ['Азраэль Великий', 'Азраэль Великий', 'Оверлорд']);
+// объединение с существующим: строка игрока уходит, партии складываются, совпавшая оценка — у того, в кого объединяют
+assert.deepEqual(t.post({ op: 'renamePlayer', from: 'Азраэль Великий', to: 'Оверлорд' }), { ok: true });
+data = t.get();
+assert.deepEqual(data.players.map(p => [p['Игрок'], p['Партий'], p['Побед']]), [['Оверлорд', '2', '1']]);
+assert.deepEqual(data.log.map(e => e['Игроки']), ['Оверлорд', 'Оверлорд']);  // дубль в одной партии убран
+assert.deepEqual(data.ratings.map(r => [r['Игра'], r['Игрок'], r['Оценка']]).sort(), [['Skull', 'Оверлорд', '2'], ['Ханаби', 'Оверлорд', '3']]);
+// только регистр/пробелы — просто исправление имени, оценки не теряются
+t.post({ op: 'renamePlayer', from: 'Оверлорд', to: 'оверлорд' });
+assert.deepEqual([t.get().players[0]['Игрок'], t.get().ratings.length], ['оверлорд', 2]);
+
+// удаление игры: строка уходит, оценки игры удаляются, журнал остаётся
+assert.deepEqual(t.post({ op: 'deleteGame', name: 'skull' }), { ok: true });
+data = t.get();
+assert.deepEqual(data.games.map(g => g['Название']), ['Ханаби']);
+assert.deepEqual(data.ratings.map(r => r['Игра']), ['Ханаби']);
+assert.equal(data.log.length, 2);
+assert.match(t.post({ op: 'deleteGame', name: 'skull' }).error, /нет в таблице/);
+
+// резервные копии: папка одна, расписание одно (повторная настройка не плодит), хранятся 12 последних
+t = setup();
+t.ctx.setupMonthlyBackup();
+t.ctx.setupMonthlyBackup();
+assert.deepEqual(t.drive.triggers.map(x => [x.fn, x.day, x.hour]), [['backupMonthly', 1, 4]]);
+assert.equal(t.drive.folders.length, 1);
+for (let i = 0; i < 12; i++) t.ctx.backupMonthly();
+assert.equal(t.drive.copies.length, 14);
+assert.deepEqual([...new Set(t.drive.trashed)].sort((a, b) => a - b), [0, 1]);  // в корзину ушли две самые старые
 
 console.log('apps-script.gs: все проверки прошли');

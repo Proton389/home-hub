@@ -123,6 +123,10 @@ dialog::backdrop { background: rgba(0,0,0,.55); backdrop-filter: blur(3px); }
 .foot-actions { display: flex; gap: 6px; margin-left: auto; }
 .dialog-body .foot-actions { flex: 1 1 100%; flex-wrap: wrap; margin-left: 0; }  /* в окне игры кнопки идут слева направо и переносятся */
 #edit-game { margin-left: auto; }
+.rename { opacity: .55; vertical-align: -3px; margin-left: 2px; }
+.rename:hover, .rename:focus-visible { opacity: 1; }
+.danger-link { margin-right: auto; color: var(--muted); font-weight: 500; }
+.danger-link:hover:not(:disabled) { color: var(--danger); border-color: transparent; }
 .game { cursor: pointer; }
 .game-title { all: unset; cursor: pointer; overflow-wrap: anywhere; }
 .game-title:hover { color: var(--accent); }
@@ -176,7 +180,7 @@ td input:not([type=number]) { min-width: 130px; }
 .month { margin-top: 22px; }
 .month h3 { font-size: 13px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); margin: 0 4px 8px; }
 .pre-list { padding: 6px; }
-.pre-row { display: grid; grid-template-columns: minmax(0, 1fr) 170px 150px 36px; gap: 8px; align-items: center; padding: 4px; border-radius: 10px; }
+.pre-row { display: grid; grid-template-columns: minmax(0, 1fr) 170px 150px auto 36px; gap: 8px; align-items: center; padding: 4px; border-radius: 10px; }
 .pre-row + .pre-row { border-top: 1px solid var(--border); border-radius: 0; }
 .pre-row input { background: transparent; border-color: transparent; }
 .pre-row input:hover { border-color: var(--border); }
@@ -190,7 +194,8 @@ td input:not([type=number]) { min-width: 130px; }
   .pre-row { grid-template-columns: minmax(0, 1fr) 36px; }
   .pre-row .pre-date { grid-column: 1; }
   .pre-row .when { grid-column: 1; padding: 0 12px 6px; }
-  .pre-row > .btn { grid-row: 1; grid-column: 2; }
+  .pre-row > [data-del] { grid-row: 1; grid-column: 2; }
+  .pre-row > [data-got] { grid-column: 1; justify-self: start; margin: 0 0 6px 8px; }
   .pre-head { display: none; }
 }
 
@@ -335,12 +340,28 @@ function toast(msg, err = false) {
 }
 
 const CACHE_KEY = 'hub-data';  // последняя загруженная таблица — чтобы сайт открывался и без связи
-async function loadData() {
+async function fetchData() {
   const data = await (await fetch(API)).json();
   if (data.error) throw new Error(data.error);
-  db = { log: [], ratings: [], ...data };
-  try { localStorage.setItem(CACHE_KEY, JSON.stringify({ at: Date.now(), db })); } catch {}
+  const fresh = { log: [], ratings: [], ...data };
+  try { localStorage.setItem(CACHE_KEY, JSON.stringify({ at: Date.now(), db: fresh })); } catch {}
   $('#offline').hidden = true;
+  return fresh;
+}
+async function loadData() { db = await fetchData(); }
+
+// Свежие данные из таблицы. Применяются, только когда пользователь ничего не вводит и окна закрыты;
+// если за время загрузки что-то сохранили — загруженное уже устарело, грузим ещё раз.
+const busy = () => pending || $('#dialog').open || $('#viewer').open || document.activeElement?.matches('input, textarea, select');
+async function refresh() {
+  const at = edits, data = await fetchData();
+  const apply = () => {
+    if (edits !== at) return refresh().catch(() => {});
+    if (busy()) return setTimeout(apply, 1500);
+    db = data;
+    branch ? render() : route();
+  };
+  apply();
 }
 
 const PW_KEY = 'hub-password';
@@ -389,10 +410,11 @@ async function requirePassword() {
 
 // shortcut: игроки и предзаказы сохраняются листом целиком, последняя запись побеждает; если два устройства правят один лист в одну секунду, одна правка потеряется. Станет мешать — перейти на команды по строкам, как с партиями.
 // сохранения идут строго по очереди: иначе при быстрых кликах старый запрос может дойти позже нового и затереть его
-let saveQueue = Promise.resolve(), pending = 0;
+let saveQueue = Promise.resolve(), pending = 0, edits = 0;
 const save = (key, msg) => send(() => ({ key, rows: db[key] }), msg);
 function send(body, msg) {  // body() собирает запрос в момент отправки, чтобы ушли самые свежие данные
   pending++;
+  edits++;
   return saveQueue = saveQueue.then(() => sendSave(body, msg)).finally(() => pending--);
 }
 async function sendSave(body, msg = 'Сохранено') {
@@ -565,10 +587,10 @@ async function rate(game, player, value) {
 // Поля формы — заголовки листа игр, кроме «Партий» (его считает журнал)
 const gameColumns = () => (db.gameColumns?.length ? db.gameColumns : Object.keys(db.games[0] ?? { [COL.name]: '' })).filter(h => h !== PLAYS.count);
 
-async function showGameForm(g = null) {
+async function showGameForm(g = null, prefill = {}, onSaved = null) {
   if (!await requirePassword()) return;
   const d = $('#dialog'), cols = gameColumns(), numeric = [COL.min, COL.max, COL.time], urls = [COL.link, COL.rules, COL.cover];
-  const val = h => g ? String(g[h] ?? '') : '';
+  const val = h => String((g ?? prefill)[h] ?? '');
   const input = h => {
     const label = `<span>${esc(h)}${h === COL.name ? ' *' : ''}</span>`, v = esc(val(h));
     if (h === COL.desc) return `<label class="field">${label}<textarea data-col="${esc(h)}" rows="4">${v}</textarea></label>`;
@@ -582,7 +604,7 @@ async function showGameForm(g = null) {
     ${types.length ? `<div class="field"><span>Тип</span><div class="gf-types">${types.map(h => `<label class="check"><input type="checkbox" data-col="${esc(h)}" ${num(val(h)) === 1 ? 'checked' : ''}> ${esc(typeLabel(h))}</label>`).join('')}</div></div>` : ''}
     <div class="muted hint">* — обязательное поле, остальные можно заполнить позже.</div>
     <div class="form-error" id="gf-error" role="alert"></div>
-    <div class="dialog-actions"><button type="button" class="btn ghost" id="gf-cancel">Отмена</button><button class="btn primary">${g ? 'Сохранить' : 'Добавить игру'}</button></div>
+    <div class="dialog-actions">${g ? `<button type="button" class="btn sm ghost danger-link" id="gf-delete">${ICON.trash} Удалить игру</button>` : ''}<button type="button" class="btn ghost" id="gf-cancel">Отмена</button><button class="btn primary">${g ? 'Сохранить' : 'Добавить игру'}</button></div>
   </form>`;
   const f = $('#game-form'), err = msg => { $('#gf-error').textContent = msg; };
   f.onsubmit = e => {
@@ -594,7 +616,12 @@ async function showGameForm(g = null) {
     if (db.games.some(x => x !== g && norm(x[COL.name]) === norm(name))) return err('Такая игра уже есть в коллекции');
     if (fields[COL.min] && fields[COL.max] && num(fields[COL.min]) > num(fields[COL.max])) return err(`«${COL.min}» больше, чем «${COL.max}»`);
     d.close();
-    saveGame(g, fields);
+    saveGame(g, fields, onSaved);
+  };
+  if (g) $('#gf-delete').onclick = () => {
+    if (!confirm(`Удалить «${String(g[COL.name]).trim()}» из коллекции? Записи в журнале останутся, оценки этой игры удалятся.`)) return;
+    d.close();
+    deleteGame(g);
   };
   $('#close').onclick = $('#gf-cancel').onclick = () => d.close();
   d.onclick = e => { if (e.target === d) d.close(); };
@@ -602,12 +629,20 @@ async function showGameForm(g = null) {
   f.querySelector('[data-col]').focus();
 }
 
+async function deleteGame(g) {
+  const name = String(g[COL.name]).trim(), i = db.games.indexOf(g), ratings = db.ratings;
+  db.games.splice(i, 1);
+  db.ratings = db.ratings.filter(r => norm(r[RATE.game]) !== norm(name));
+  render();
+  if (!await send(() => ({ op: 'deleteGame', name }), `Удалено из коллекции: ${name}`)) { db.games.splice(i, 0, g); db.ratings = ratings; render(); }
+}
+
 function renameLocal(from, to) {  // журнал и оценки хранят название игры текстом — переименовываем и их
   for (const e of db.log) if (norm(e[LOG.game]) === norm(from)) e[LOG.game] = to;
   for (const r of db.ratings) if (norm(r[RATE.game]) === norm(from)) r[RATE.game] = to;
 }
 
-async function saveGame(g, fields) {
+async function saveGame(g, fields, onSaved) {
   const isNew = !g, original = isNew ? null : String(g[COL.name]), before = isNew ? null : { ...g };
   if (isNew) db.games.push(g = { ...Object.fromEntries(gameColumns().map(h => [h, ''])), [PLAYS.count]: '0', ...fields });
   else Object.assign(g, fields);
@@ -615,7 +650,7 @@ async function saveGame(g, fields) {
   if (renamed) renameLocal(original, fields[COL.name]);
   render();
   const res = await send(() => ({ op: 'saveGame', original, fields }), isNew ? `Добавлено: ${fields[COL.name]}` : 'Изменения сохранены');
-  if (res) return;
+  if (res) return onSaved?.();
   if (isNew) db.games.splice(db.games.indexOf(g), 1);  // не сохранилось — возвращаем как было
   else { Object.assign(g, before); if (renamed) renameLocal(fields[COL.name], original); }
   render();
@@ -947,18 +982,65 @@ function renderPlayers() {
     <tbody>${rows.map(p => {
       const rate = p.plays ? Math.round(p.wins / p.plays * 100) : null, i = db.players.findIndex(x => norm(x[PL.name]) === norm(p.name));
       const del = p.plays || i < 0 ? 'disabled title="У игрока есть партии в журнале — удалить нельзя"' : `data-del="${i}" title="Удалить игрока"`;
-      return `<tr><td class="pname">${esc(p.name)}</td><td>${p.plays}</td><td>${p.wins}</td>
+      return `<tr><td class="pname">${esc(p.name)}<button class="btn icon ghost sm rename" data-rename="${esc(p.name)}" title="Переименовать" aria-label="Переименовать ${esc(p.name)}">${ICON.edit}</button></td><td>${p.plays}</td><td>${p.wins}</td>
         <td><div class="rate"><i><b style="width:${rate ?? 0}%"></b></i>${rate == null ? '—' : rate + '%'}</div></td>
         <td class="muted">${esc(fav.get(norm(p.name))?.game ?? '—')}</td>
         <td><div class="actions"><button class="btn icon ghost sm" ${del} aria-label="Удалить игрока">${ICON.trash}</button></div></td></tr>`;
     }).join('')}</tbody></table></div>` : '<div class="empty">Игроков пока нет</div>';
   box.onclick = e => {
+    const rn = e.target.closest('[data-rename]');
+    if (rn) return renamePlayerForm(rn.dataset.rename);
     const b = e.target.closest('[data-del]'), p = b && db.players[b.dataset.del];
     if (!p || !confirm(`Удалить игрока «${String(p[PL.name]).trim()}»?`)) return;
     db.players.splice(b.dataset.del, 1);
     save('players', 'Игрок удалён');
     render();
   };
+}
+
+async function renamePlayerForm(from) {
+  if (!await requirePassword()) return;
+  const d = $('#dialog');
+  d.innerHTML = `<form class="dialog-body" id="rename-form" novalidate>
+    <div class="game-top"><h3 class="info-title">Переименовать игрока</h3><button type="button" class="btn icon ghost" id="close" aria-label="Закрыть">✕</button></div>
+    <label class="field"><span>Новое имя для «${esc(from)}»</span><input name="to" value="${esc(from)}" autocomplete="off"></label>
+    <div class="muted hint">Партии, победы и оценки перейдут на новое имя. Если такой игрок уже есть — они объединятся.</div>
+    <div class="form-error" id="rn-error" role="alert"></div>
+    <div class="dialog-actions"><button type="button" class="btn ghost" id="rn-cancel">Отмена</button><button class="btn primary">Переименовать</button></div>
+  </form>`;
+  const f = $('#rename-form'), err = m => { $('#rn-error').textContent = m; };
+  f.onsubmit = e => {
+    e.preventDefault();
+    const to = f.elements.to.value.trim();
+    if (!to) return err('Введите имя');
+    if (to.includes(',')) return err('В имени не должно быть запятой');
+    if (to === from) return d.close();
+    const other = allPlayers().find(p => norm(p.name) === norm(to) && norm(p.name) !== norm(from));
+    if (other && !confirm(`Игрок «${other.name}» уже есть. Объединить «${from}» с ним? Партии сложатся.`)) return;
+    d.close();
+    renamePlayer(from, to);
+  };
+  $('#close').onclick = $('#rn-cancel').onclick = () => d.close();
+  d.onclick = e => { if (e.target === d) d.close(); };
+  if (!d.open) d.showModal();
+  f.elements.to.select();
+}
+
+// То же, что делает скрипт: Лист5, журнал, оценки; при совпадении имени — объединение
+async function renamePlayer(from, to) {
+  const snap = JSON.stringify({ players: db.players, log: db.log, ratings: db.ratings });
+  const same = norm(from) === norm(to), merge = !same && db.players.some(p => norm(p[PL.name]) === norm(to));
+  const i = db.players.findIndex(p => norm(p[PL.name]) === norm(from));
+  if (i >= 0) merge ? db.players.splice(i, 1) : (db.players[i][PL.name] = to);
+  for (const e of db.log) for (const k of [LOG.players, LOG.winners]) {
+    const seen = new Set();
+    e[k] = splitNames(e[k]).map(n => norm(n) === norm(from) ? to : n).filter(n => !seen.has(norm(n)) && seen.add(norm(n))).join(', ');
+  }
+  const rated = new Set(db.ratings.filter(r => norm(r[RATE.player]) === norm(to)).map(r => norm(r[RATE.game])));
+  db.ratings = db.ratings.filter(r => same || norm(r[RATE.player]) !== norm(from) || !rated.has(norm(r[RATE.game])));
+  for (const r of db.ratings) if (norm(r[RATE.player]) === norm(from)) r[RATE.player] = to;
+  render();
+  if (!await send(() => ({ op: 'renamePlayer', from, to }), merge ? `Объединено: ${to}` : `Переименовано: ${to}`)) { Object.assign(db, JSON.parse(snap)); render(); }
 }
 
 /* ---------- Предзаказы ---------- */
@@ -1009,7 +1091,7 @@ function renderPreorders(el) {
       <input name="date" type="date" aria-label="Дата прихода" style="flex:0 1 190px">
       <button class="btn primary">Добавить предзаказ</button>
     </form>
-    ${items.length ? `<div class="pre-row pre-head" style="margin-top:18px"><span>${esc(PRE.name)}</span><span>${esc(PRE.date)}</span><span></span><span></span></div>` : '<div class="empty">Предзаказов нет</div>'}
+    ${items.length ? `<div class="pre-row pre-head" style="margin-top:18px"><span>${esc(PRE.name)}</span><span>${esc(PRE.date)}</span><span></span><span></span><span></span></div>` : '<div class="empty">Предзаказов нет</div>'}
     <div id="pre-list">${groups.map(g => `<section class="month"><h3>${g.label} · ${g.items.length}</h3><div class="card pre-list">
       ${g.items.map(({ p, i, d }) => {
         const [text, cls] = until(d);
@@ -1017,6 +1099,7 @@ function renderPreorders(el) {
           <input class="pre-name" data-i="${i}" value="${esc(p[PRE.name])}" aria-label="Название">
           <input class="pre-date" type="date" data-i="${i}" value="${toISO(d)}" aria-label="Дата прихода">
           <span class="when ${cls}">${text}</span>
+          <button class="btn sm" data-got="${i}" title="Игра пришла — добавить в коллекцию">✓ Получен</button>
           <button class="btn icon ghost" data-del="${i}" title="Удалить предзаказ" aria-label="Удалить предзаказ">${ICON.trash}</button>
         </div>`;
       }).join('')}</div></section>`).join('')}</div>`;
@@ -1045,12 +1128,32 @@ function renderPreorders(el) {
   // пересортировать по месяцам, только когда фокус ушёл из списка, иначе ввод даты сбивается
   list.onfocusout = e => { if (regroup && !list.contains(e.relatedTarget)) render(); };
   list.onclick = e => {
+    const got = e.target.closest('[data-got]');
+    if (got) return receivePreorder(db.preorders[got.dataset.got]);
     const b = e.target.closest('[data-del]'), p = b && db.preorders[b.dataset.del];
     if (!p || !confirm(`Удалить предзаказ «${p[PRE.name]}»?`)) return;
     db.preorders.splice(b.dataset.del, 1);
     save('preorders', 'Предзаказ удалён');
     render();
   };
+}
+
+// «Получен»: открывает форму новой игры с названием из предзаказа; предзаказ убирается, когда игра сохранена
+function receivePreorder(p) {
+  if (!p) return;
+  const name = String(p[PRE.name]).trim();
+  const done = () => {
+    const i = db.preorders.indexOf(p);
+    if (i < 0) return;
+    db.preorders.splice(i, 1);
+    save('preorders', `«${name}» теперь в коллекции`);
+    render();
+  };
+  if (db.games.some(g => norm(g[COL.name]) === norm(name))) {
+    if (confirm(`«${name}» уже есть в коллекции. Убрать предзаказ?`)) done();
+    return;
+  }
+  showGameForm(null, { [COL.name]: name }, done);
 }
 
 /* ---------- Полезное ---------- */
@@ -1075,23 +1178,22 @@ function renderLinks(el) {
 $('#logo').innerHTML = ICON.dice;
 window.addEventListener('hashchange', route);
 // другое устройство могло что-то поменять, пока вкладка была в фоне
-document.addEventListener('visibilitychange', async () => {
-  if (document.visibilityState !== 'visible' || pending || $('#dialog').open || document.activeElement?.matches('input')) return;
-  try { await loadData(); render(); } catch {}
-});
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') refresh().catch(() => {}); });
+let cached = null;
+try { cached = JSON.parse(localStorage.getItem(CACHE_KEY)); } catch {}
 if (!API) $('#view').innerHTML = '<div class="empty">Сайт ещё не подключён к Google-таблице: впишите адрес Apps Script в строку <code>const API</code> в index.html (см. README.md).</div>';
-else loadData().then(route, e => {
-  let cached = null;
-  try { cached = JSON.parse(localStorage.getItem(CACHE_KEY)); } catch {}
-  if (cached?.db) {  // нет связи — показываем последнюю загруженную копию
-    db = cached.db;
-    const at = new Date(cached.at).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
-    $('#offline').textContent = `Нет связи с таблицей — показаны данные от ${at}. Изменения сейчас не сохранятся.`;
-    $('#offline').hidden = false;
-    return route();
-  }
-  $('#view').innerHTML = `<div class="empty">Не удалось загрузить данные из Google-таблицы${e instanceof TypeError ? ' — есть ли интернет?' : ': ' + esc(e.message)}</div>`;
-});
+else {
+  if (cached?.db) { db = { log: [], ratings: [], ...cached.db }; route(); }  // мгновенно — прошлая копия; свежая подгрузится следом
+  refresh().catch(e => {
+    if (cached?.db) {
+      const at = new Date(cached.at).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+      $('#offline').textContent = `Нет связи с таблицей — показаны данные от ${at}. Изменения сейчас не сохранятся.`;
+      $('#offline').hidden = false;
+      return;
+    }
+    $('#view').innerHTML = `<div class="empty">Не удалось загрузить данные из Google-таблицы${e instanceof TypeError ? ' — есть ли интернет?' : ': ' + esc(e.message)}</div>`;
+  });
+}
 // иконка на экране телефона и запуск без сети (sw.js); работает только по https или на localhost
 if ('serviceWorker' in navigator && isSecureContext) navigator.serviceWorker.register('sw.js').catch(() => {});
 </script>
