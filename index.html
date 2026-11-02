@@ -4,6 +4,12 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Домашний хаб</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Хаб">
+<meta name="theme-color" content="#0e1016" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#f4f5f9" media="(prefers-color-scheme: light)">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><rect x='2' y='2' width='20' height='20' rx='5' fill='%238b6cff'/><circle cx='8' cy='8' r='1.8' fill='white'/><circle cx='12' cy='12' r='1.8' fill='white'/><circle cx='16' cy='16' r='1.8' fill='white'/></svg>">
 <style>
 :root {
@@ -109,7 +115,7 @@ input[type=checkbox] { width: auto; accent-color: var(--accent); }
 .badges { display: flex; flex-wrap: wrap; gap: 6px; min-height: 22px; }
 .badge { font-size: 12px; font-weight: 700; padding: 2px 9px; border-radius: 999px; color: var(--c); background: color-mix(in srgb, var(--c) 14%, transparent); }
 .game-foot { margin-top: auto; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: space-between; padding-top: 10px; border-top: 1px solid var(--border); font-size: 14px; }
-dialog { padding: 0; border: 1px solid var(--border); border-radius: 18px; background: var(--surface); color: var(--text); width: min(420px, calc(100% - 32px)); }
+dialog { padding: 0; border: 1px solid var(--border); border-radius: 18px; background: var(--surface); color: var(--text); width: min(420px, calc(100% - 32px)); max-height: calc(100vh - 32px); overflow: auto; }
 dialog::backdrop { background: rgba(0,0,0,.55); backdrop-filter: blur(3px); }
 .dialog-body { padding: 22px; display: flex; flex-direction: column; gap: 14px; }
 .dialog-body .game { background: var(--surface-2); transform: none; }
@@ -192,6 +198,48 @@ td input:not([type=number]) { min-width: 130px; }
 .link-card .muted { font-size: 13px; }
 .link-icon { flex: none; width: 40px; height: 40px; border-radius: 10px; display: grid; place-items: center; color: var(--accent); background: var(--accent-soft); }
 
+.offline { margin: -8px 0 18px; padding: 10px 14px; border-radius: 10px; font-size: 14px; font-weight: 600; color: var(--warn); background: color-mix(in srgb, var(--warn) 12%, transparent); }
+.place { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 13px; }
+.place svg { flex: none; }
+.facts .rating { color: var(--text); font-weight: 600; }
+.facts .rating svg { color: var(--warn); fill: currentColor; }
+.hint { font-size: 12px; font-weight: 400; margin-top: 4px; }
+.form-error { color: var(--danger); font-size: 14px; font-weight: 600; }
+.form-error:empty { display: none; }
+.dialog-body .field { flex: none; }  /* в фильтрах поля тянутся по ширине; в вертикальной форме это давало бы пустоты */
+#log-form .chip { --c: var(--accent); }
+#log-form .chip[data-w] { --c: var(--warn); }
+#log-form .add-row { margin-top: 8px; }
+#log-form .add-row input { padding: 7px 10px; }
+.chip svg { vertical-align: -2px; }
+.ratings { display: grid; gap: 2px; }
+.rate-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.rate-row > span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.stars { display: flex; flex: none; }
+.star { font: inherit; font-size: 22px; line-height: 1; padding: 5px 3px; background: none; border: 0; color: var(--border); cursor: pointer; }
+.star.on { color: var(--warn); }
+.star:focus-visible { outline: 2px solid var(--accent); border-radius: 4px; }
+.log { list-style: none; margin: 0; padding: 0; }
+.log li { display: grid; grid-template-columns: 92px minmax(0, 1fr) auto; gap: 12px; align-items: start; padding: 10px 0; border-top: 1px solid var(--border); }
+.log li:first-child { border-top: 0; }
+.log-date { color: var(--muted); font-size: 14px; font-variant-numeric: tabular-nums; padding-top: 1px; }
+.log-game { font-weight: 700; }
+.log-note { font-size: 14px; margin-top: 2px; }
+.winner { display: inline-flex; align-items: center; gap: 3px; color: var(--text); font-weight: 600; }
+.winner svg { color: var(--warn); }
+#log-more { margin-top: 8px; }
+.top { list-style: none; margin: 14px 0 0; padding: 0; display: grid; gap: 8px; }
+.top li { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(60px, 1fr) 30px 22px; align-items: center; gap: 10px; font-size: 14px; }
+.top li > span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.top-bar { height: 8px; border-radius: 4px; background: var(--surface-2); overflow: hidden; }
+.top-bar i { display: block; height: 100%; border-radius: 4px; background: var(--pie-1); }
+.top li .muted { text-align: right; font-size: 12px; }
+td.pname { font-weight: 600; padding-left: 12px; }
+@media (max-width: 520px) {
+  .log li { grid-template-columns: minmax(0, 1fr) auto; gap: 4px 12px; }
+  .log-date { grid-column: 1 / -1; padding: 0; }
+}
+
 .toast { position: fixed; left: 50%; bottom: 22px; transform: translate(-50%, 16px); opacity: 0; pointer-events: none; transition: .2s; padding: 10px 16px; border-radius: 10px; font-weight: 600; background: var(--text); color: var(--bg); box-shadow: 0 8px 30px rgba(0,0,0,.3); max-width: calc(100% - 32px); }
 .toast.show { opacity: 1; transform: translate(-50%, 0); }
 .toast.err { background: var(--danger); color: #fff; }
@@ -209,6 +257,7 @@ td input:not([type=number]) { min-width: 130px; }
       <div><h1 id="title"></h1><div class="muted" id="subtitle"></div></div>
       <nav class="tabs" id="tabs" aria-label="Вкладки раздела"></nav>
     </div>
+    <div class="offline" id="offline" hidden></div>
     <div id="view"><div class="empty">Загрузка…</div></div>
   </main>
 </div>
@@ -221,13 +270,15 @@ td input:not([type=number]) { min-width: 130px; }
 const API = 'https://script.google.com/macros/s/AKfycbxJh44sSkzNkanxXTagXuV_7HagKqr-cFRtnDQWrk_u53YPjqj9SVZw_USHyeIRkQAT/exec';
 
 // Названия столбцов из Google-таблицы. Переименуете столбцы — поменяйте только здесь.
-const COL = { name: 'Название', min: 'Мин игроков', max: 'Макс игроков', time: 'Время', link: 'Ссылка', rules: 'Правила', cover: 'Обложка', types: ['Coop', 'Noncoop', 'Traitor'] };
+const COL = { name: 'Название', min: 'Мин игроков', max: 'Макс игроков', time: 'Время', link: 'Ссылка', rules: 'Правила', cover: 'Обложка', place: 'Где искать', types: ['Coop', 'Noncoop', 'Traitor'] };
 // Как типы подписаны на сайте (ключи — названия столбцов в таблице).
 const TYPE_LABEL = { Coop: 'Кооператив', Noncoop: 'Соревновательная', Traitor: 'С предателем' };
 const typeLabel = t => TYPE_LABEL[t] ?? t;
 const PLAYS = { name: 'Название', count: 'Партий' };
 const PRE = { name: 'Название', date: 'ДД/ММ/ГГГГ' };
 const PL = { name: 'Игрок', games: 'Партий', wins: 'Побед' };
+const LOG = { id: 'ID', date: 'Дата', game: 'Игра', players: 'Игроки', winners: 'Победители', note: 'Заметка' };  // лист «Журнал»
+const RATE = { game: 'Игра', player: 'Игрок', value: 'Оценка' };  // лист «Оценки»
 
 const svg = (p, s = 16) => `<svg viewBox="0 0 24 24" width="${s}" height="${s}" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${p}</svg>`;
 const ICON = {
@@ -238,6 +289,9 @@ const ICON = {
   trash: svg('<path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>'),
   refresh: svg('<path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><path d="M21 3v5h-5"/>', 14),
   book: svg('<path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/>', 14),
+  trophy: svg('<path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6"/><path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18"/><path d="M4 22h16"/><path d="M10 14.66V17c0 .55-.47.98-.97 1.21C7.85 18.75 7 20.24 7 22"/><path d="M14 14.66V17c0 .55.47.98.97 1.21C16.15 18.75 17 20.24 17 22"/><path d="M18 2H6v7a6 6 0 0 0 12 0V2Z"/>', 13),
+  star: svg('<path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01z"/>', 15),
+  pin: svg('<path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0z"/><circle cx="12" cy="10" r="3"/>', 14),
 };
 
 // Ветки сервиса. Новая ветка = ещё один объект в этом списке.
@@ -250,7 +304,7 @@ const BRANCHES = [
   ] },
 ];
 
-let db = { games: [], plays: [], preorders: [], players: [] };
+let db = { games: [], preorders: [], players: [], log: [], ratings: [] };
 let branch, tab;
 
 const $ = s => document.querySelector(s);
@@ -270,10 +324,13 @@ function toast(msg, err = false) {
   toastTimer = setTimeout(() => t.className = 'toast', 2200);
 }
 
+const CACHE_KEY = 'hub-data';  // последняя загруженная таблица — чтобы сайт открывался и без связи
 async function loadData() {
   const data = await (await fetch(API)).json();
   if (data.error) throw new Error(data.error);
-  db = data;
+  db = { log: [], ratings: [], ...data };
+  try { localStorage.setItem(CACHE_KEY, JSON.stringify({ at: Date.now(), db })); } catch {}
+  $('#offline').hidden = true;
 }
 
 const PW_KEY = 'hub-password';
@@ -342,38 +399,147 @@ function route() {
 }
 
 function render() {
+  computeStats();
   $('#title').textContent = branch.title;
   $('#subtitle').textContent = branch.subtitle?.() ?? '';
   tab.render($('#view'));
 }
 
-/* ---------- Партии ---------- */
+/* ---------- Журнал партий и оценки ---------- */
 
-const playsRow = name => db.plays.find(p => norm(p[PLAYS.name]) === norm(name));
-const playsOf = name => num(playsRow(name)?.[PLAYS.count]);
+const splitNames = s => String(s ?? '').split(',').map(x => x.trim()).filter(Boolean);
+const fmtDate = d => d ? `${pad(d.getDate())}.${pad(d.getMonth() + 1)}.${d.getFullYear()}` : '';
 
-function playsList() {
-  const list = db.plays.map(p => ({ name: p[PLAYS.name], n: num(p[PLAYS.count]) }));
-  for (const g of db.games) if (!playsRow(g[COL.name])) list.push({ name: g[COL.name], n: 0 });
+// Всё считается из журнала: партии игр, партии и победы игроков, когда играли последний раз. Оценки — средние по игрокам.
+let S = { games: new Map(), players: new Map() }, R = new Map();
+function computeStats() {
+  const games = new Map(), players = new Map();
+  const player = n => players.get(norm(n)) ?? players.set(norm(n), { name: n, plays: 0, wins: 0 }).get(norm(n));
+  for (const e of db.log) {
+    const k = norm(e[LOG.game]), d = parseDate(e[LOG.date]);
+    const g = games.get(k) ?? games.set(k, { name: String(e[LOG.game]).trim(), n: 0, last: null }).get(k);
+    g.n++;
+    if (d && (!g.last || d > g.last)) g.last = d;
+    splitNames(e[LOG.players]).forEach(n => player(n).plays++);
+    splitNames(e[LOG.winners]).forEach(n => player(n).wins++);
+  }
+  for (const p of db.players) if (String(p[PL.name] ?? '').trim()) player(String(p[PL.name]).trim());  // игроки без партий тоже в списке
+  S = { games, players };
+  R = new Map();
+  for (const r of db.ratings) {
+    const v = num(r[RATE.value]);
+    if (!v) continue;
+    const k = norm(r[RATE.game]), g = R.get(k) ?? R.set(k, { sum: 0, count: 0, by: new Map() }).get(k);
+    g.sum += v; g.count++; g.by.set(norm(r[RATE.player]), v);
+  }
+}
+const playsOf = name => S.games.get(norm(name))?.n ?? 0;
+const lastPlayed = name => S.games.get(norm(name))?.last ?? null;
+const ratingOf = name => { const r = R.get(norm(name)); return r ? { avg: r.sum / r.count, count: r.count, by: r.by } : null; };
+const allPlayers = () => [...S.players.values()].sort((a, b) => byName(a.name, b.name));
+
+function playsList() {  // все игры коллекции + игры из журнала, которых уже нет на Лист1
+  const known = new Set(db.games.map(g => norm(g[COL.name])));
+  const list = db.games.map(g => ({ name: g[COL.name], n: playsOf(g[COL.name]) }));
+  for (const [k, g] of S.games) if (!known.has(k)) list.push({ name: g.name, n: g.n });
   return list;
 }
 
-async function addPlay(name, delta = 1) {
-  let row = playsRow(name);
-  if (!row) db.plays.push(row = { [PLAYS.name]: name, [PLAYS.count]: 0 });
-  const before = row[PLAYS.count];
-  row[PLAYS.count] = Math.max(0, num(before) + delta);
-  if ($('#dialog').open) $('#dialog').close();
+function showLogForm(gameName = '') {
+  const d = $('#dialog'), sel = new Set(), win = new Set();
+  const game = db.games.find(g => norm(g[COL.name]) === norm(gameName));
+  const names = allPlayers().map(p => p.name);
+  d.innerHTML = `<form class="dialog-body" id="log-form" novalidate>
+    <div class="game-top"><h3 class="info-title">Записать партию</h3><button type="button" class="btn icon ghost" id="close" aria-label="Закрыть">✕</button></div>
+    <label class="field"><span>Игра</span><input name="game" list="log-games" autocomplete="off" placeholder="Начните вводить название" value="${esc(game ? String(game[COL.name]).trim() : '')}"></label>
+    <datalist id="log-games">${db.games.map(g => `<option value="${esc(String(g[COL.name]).trim())}">`).join('')}</datalist>
+    <label class="field"><span>Дата</span><input name="date" type="date" value="${toISO(new Date())}"></label>
+    <div class="field"><span>Кто играл</span><div class="chips" id="lf-players"></div>
+      <div class="add-row"><input id="lf-new" placeholder="Новый игрок" aria-label="Имя нового игрока"><button type="button" class="btn sm" id="lf-add">Добавить</button></div></div>
+    <div class="field"><span>Победители</span><div class="chips" id="lf-winners"></div><div class="muted hint">Никого не отметили — значит, победила игра.</div></div>
+    <label class="field"><span>Заметка</span><input name="note" maxlength="300" placeholder="Необязательно"></label>
+    <div class="form-error" id="lf-error" role="alert"></div>
+    <div class="dialog-actions"><button type="button" class="btn ghost" id="lf-cancel">Отмена</button><button class="btn primary">Записать</button></div>
+  </form>`;
+  const f = $('#log-form'), err = msg => { $('#lf-error').textContent = msg; };
+  const chips = () => {
+    $('#lf-players').innerHTML = names.map(n => `<button type="button" class="chip" data-p="${esc(n)}" aria-pressed="${sel.has(n)}">${esc(n)}</button>`).join('') || '<span class="muted">Добавьте игроков ниже</span>';
+    $('#lf-winners').innerHTML = [...sel].map(n => `<button type="button" class="chip" data-w="${esc(n)}" aria-pressed="${win.has(n)}">${ICON.trophy} ${esc(n)}</button>`).join('') || '<span class="muted">Сначала отметьте, кто играл</span>';
+  };
+  chips();
+  f.onclick = e => {
+    const p = e.target.closest('[data-p]')?.dataset.p, w = e.target.closest('[data-w]')?.dataset.w;
+    if (p != null) { if (sel.has(p)) { sel.delete(p); win.delete(p); } else sel.add(p); chips(); }
+    if (w != null) { win.has(w) ? win.delete(w) : win.add(w); chips(); }
+  };
+  $('#lf-add').onclick = () => {
+    const n = $('#lf-new').value.trim();
+    if (!n || n.includes(',')) return err(n ? 'В имени не должно быть запятой' : 'Введите имя игрока');
+    const same = names.find(x => norm(x) === norm(n));
+    if (!same) names.push(n);
+    sel.add(same ?? n);
+    $('#lf-new').value = '';
+    err('');
+    chips();
+  };
+  $('#lf-new').onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); $('#lf-add').click(); } };
+  f.onsubmit = e => {
+    e.preventDefault();
+    const g = db.games.find(x => norm(x[COL.name]) === norm(f.elements.game.value));
+    if (!g) return err(f.elements.game.value.trim() ? 'Такой игры нет в коллекции — выберите из списка' : 'Выберите игру');
+    if (!parseDate(f.elements.date.value)) return err('Укажите дату');
+    if (!sel.size) return err('Отметьте, кто играл');
+    d.close();
+    recordPlay(String(g[COL.name]).trim(), fromISO(f.elements.date.value), [...sel], [...win], f.elements.note.value.trim());
+  };
+  $('#close').onclick = $('#lf-cancel').onclick = () => d.close();
+  d.onclick = e => { if (e.target === d) d.close(); };
+  if (!d.open) d.showModal();
+}
+
+async function recordPlay(game, date, players, winners, note) {
+  const entry = { [LOG.id]: '', [LOG.date]: date, [LOG.game]: game, [LOG.players]: players.join(', '), [LOG.winners]: winners.join(', '), [LOG.note]: note };
+  db.log.push(entry);
+  for (const n of players) if (!db.players.some(p => norm(p[PL.name]) === norm(n))) db.players.push({ [PL.name]: n, [PL.games]: 0, [PL.wins]: 0 });
   render();
-  // в таблице меняется только ячейка «Партий» этой игры на Лист1; прибавляет сам скрипт
-  const res = await send(() => ({ op: 'addPlay', name: String(name), delta }), delta > 0 ? `+1 партия: ${String(name).trim()}` : 'Партия убрана');
-  if (res) row[PLAYS.count] = res.value;  // число из таблицы — с учётом партий, записанных с других устройств
-  else { row[PLAYS.count] = before; render(); }  // не сохранилось — не показываем то, чего нет в таблице
+  const res = await send(() => ({ op: 'log', date, game, players, winners, note }), `Записано: ${game}`);
+  if (res) entry[LOG.id] = res.id;
+  else { db.log.splice(db.log.indexOf(entry), 1); render(); }  // не сохранилось — не показываем то, чего нет в таблице
+}
+
+async function deletePlay(entry) {
+  if (!entry || !confirm(`Удалить запись «${entry[LOG.game]}» от ${entry[LOG.date]}?`)) return;
+  const i = db.log.indexOf(entry);
+  db.log.splice(i, 1);
+  render();
+  if (!await send(() => ({ op: 'unlog', id: entry[LOG.id] }), 'Запись удалена')) { db.log.splice(i, 0, entry); render(); }
+}
+
+let openGame = null;  // игра, открытая в окне «Подробнее», — чтобы перерисовать звёзды после оценки
+async function rate(game, player, value) {
+  let row = db.ratings.find(r => norm(r[RATE.game]) === norm(game) && norm(r[RATE.player]) === norm(player));
+  const before = row ? row[RATE.value] : null;
+  if (row) row[RATE.value] = value; else db.ratings.push(row = { [RATE.game]: game, [RATE.player]: player, [RATE.value]: value });
+  const redraw = () => { render(); if ($('#dialog').open && openGame) showGame(openGame); };
+  redraw();
+  if (!await send(() => ({ op: 'rate', game, player, value }), value ? `${player}: ${value} из 5` : 'Оценка снята')) {
+    if (before == null) db.ratings.splice(db.ratings.indexOf(row), 1); else row[RATE.value] = before;
+    redraw();
+  }
+}
+
+function favourites() {  // игрок → игра с его самой высокой оценкой
+  const best = new Map();
+  for (const r of db.ratings) {
+    const v = num(r[RATE.value]), k = norm(r[RATE.player]);
+    if (v && v > (best.get(k)?.v ?? 0)) best.set(k, { v, game: String(r[RATE.game]).trim() });
+  }
+  return best;
 }
 
 document.addEventListener('click', e => {
   const b = e.target.closest('[data-play]');
-  if (b) addPlay(b.dataset.play);
+  if (b) showLogForm(b.dataset.play);
 });
 
 /* ---------- Подбор ---------- */
@@ -384,12 +550,14 @@ const SORTS = {
   short: ['Сначала короткие', (a, b) => num(a[COL.time]) - num(b[COL.time])],
   rare: ['Реже всего играли', (a, b) => playsOf(a[COL.name]) - playsOf(b[COL.name])],
   often: ['Чаще всего играли', (a, b) => playsOf(b[COL.name]) - playsOf(a[COL.name])],
+  rating: ['Лучшие по оценке', (a, b) => (ratingOf(b[COL.name])?.avg ?? -1) - (ratingOf(a[COL.name])?.avg ?? -1) || byName(a[COL.name], b[COL.name])],
+  stale: ['Давно не играли', (a, b) => (lastPlayed(a[COL.name]) ?? 0) - (lastPlayed(b[COL.name]) ?? 0) || byName(a[COL.name], b[COL.name])],
 };
 
 function filtered() {
   const q = norm(F.q), n = num(F.players), t = num(F.time);
   return db.games.filter(g =>
-    (!q || norm(g[COL.name]).includes(q)) &&
+    (!q || norm(g[COL.name]).includes(q) || norm(g[COL.place]).includes(q)) &&
     (!n || (num(g[COL.min]) <= n && n <= num(g[COL.max]))) &&
     (!t || num(g[COL.time]) <= t) &&
     (!F.types.length || F.types.some(k => num(g[k]) === 1))
@@ -405,7 +573,9 @@ function coverImg(g, size, cls, alt) {
 
 function gameFacts(g) {
   const players = num(g[COL.min]) === num(g[COL.max]) ? g[COL.min] : `${g[COL.min]}–${g[COL.max]}`;
-  return `<div class="facts"><span title="${esc(COL.min)} / ${esc(COL.max)}">${ICON.users}${esc(players)}</span><span title="${esc(COL.time)}">${ICON.clock}${esc(g[COL.time])} мин</span></div>
+  const r = ratingOf(g[COL.name]), place = String(g[COL.place] ?? '').trim();
+  return `<div class="facts"><span title="${esc(COL.min)} / ${esc(COL.max)}">${ICON.users}${esc(players)}</span><span title="${esc(COL.time)}">${ICON.clock}${esc(g[COL.time])} мин</span>${r ? `<span class="rating" title="Средняя оценка ${r.avg.toFixed(1)} из 5, оценок: ${r.count}">${ICON.star}${r.avg.toFixed(1)}</span>` : ''}</div>
+    ${place ? `<div class="place" title="${esc(COL.place)}">${ICON.pin}${esc(place)}</div>` : ''}
     <div class="badges">${COL.types.map((t, i) => num(g[t]) === 1 ? `<span class="badge t${i}">${esc(typeLabel(t))}</span>` : '').join('')}</div>`;
 }
 
@@ -418,21 +588,37 @@ function gameCard(g) {
   </article>`;
 }
 
-// Окно «Подробнее». Столбцы Лист1, которых нет на карточке (описание, ID на складе и т. п.), появляются здесь сами.
+// Окно «Подробнее». Столбцы Лист1, которых нет на карточке (описание и т. п.), появляются здесь сами.
 function showGame(g) {
-  const name = g[COL.name], link = String(g[COL.link] ?? '');
-  const onCard = new Set([COL.name, COL.min, COL.max, COL.time, COL.link, COL.rules, COL.cover, PLAYS.count, ...COL.types]);
+  openGame = g;
+  const name = String(g[COL.name]).trim(), link = String(g[COL.link] ?? ''), r = ratingOf(name), last = lastPlayed(name);
+  const onCard = new Set([COL.name, COL.min, COL.max, COL.time, COL.link, COL.rules, COL.cover, COL.place, PLAYS.count, ...COL.types]);
   const extra = Object.entries(g).filter(([k, v]) => !onCard.has(k) && String(v ?? '').trim());
+  const ratingRows = allPlayers().map(p => {
+    const v = r?.by.get(norm(p.name)) ?? 0;
+    return `<div class="rate-row"><span>${esc(p.name)}</span><span class="stars" role="group" aria-label="Оценка: ${esc(p.name)}">${[1, 2, 3, 4, 5].map(st =>
+      `<button type="button" class="star ${st <= v ? 'on' : ''}" data-rate="${st}" data-player="${esc(p.name)}" aria-label="${st} из 5" aria-pressed="${st === v}">★</button>`).join('')}</span></div>`;
+  }).join('');
   const d = $('#dialog');
   d.innerHTML = `<div class="dialog-body">
     <div class="game-top"><h3 class="info-title">${esc(name)}</h3><button class="btn icon ghost" id="close" aria-label="Закрыть">✕</button></div>
     ${coverImg(g, 800, 'cover', `Обложка: ${name}`)}
     ${gameFacts(g)}
     ${extra.length ? `<dl class="info">${extra.map(([k, v]) => `<div><dt>${esc(k)}</dt><dd>${esc(v)}</dd></div>`).join('')}</dl>` : '<div class="muted">Описание пока не добавлено.</div>'}
-    <div class="game-foot"><span class="muted">Партий: <b>${playsOf(name)}</b></span><span class="foot-actions">${rulesLink(g)}${/^https?:\/\//i.test(link) ? `<a class="btn sm" href="${esc(link)}" target="_blank" rel="noopener">${ICON.ext} Страница игры</a>` : ''}<button class="btn sm" data-play="${esc(name)}">+ партия</button></span></div>
+    <div class="field"><span>Оценки${r ? ` · средняя ${r.avg.toFixed(1)} из 5` : ''}</span>
+      <div class="ratings">${ratingRows || '<span class="muted">Сначала добавьте игроков во вкладке «Статистика»</span>'}</div>
+      ${ratingRows ? '<div class="muted hint">Нажмите ту же звезду ещё раз, чтобы снять оценку.</div>' : ''}</div>
+    <div class="game-foot"><span class="muted">Партий: <b>${playsOf(name)}</b>${last ? ` · последний раз ${fmtDate(last)}` : ''}</span><span class="foot-actions">${rulesLink(g)}${/^https?:\/\//i.test(link) ? `<a class="btn sm" href="${esc(link)}" target="_blank" rel="noopener">${ICON.ext} Страница игры</a>` : ''}<button class="btn sm" data-play="${esc(name)}">+ партия</button></span></div>
   </div>`;
   $('#close').onclick = () => d.close();
+  d.querySelector('.ratings').onclick = e => {
+    const b = e.target.closest('[data-rate]');
+    if (!b) return;
+    const v = +b.dataset.rate, cur = ratingOf(name)?.by.get(norm(b.dataset.player)) ?? 0;
+    rate(name, b.dataset.player, v === cur ? 0 : v);
+  };
   d.onclick = e => { if (e.target === d) d.close(); };
+  d.onclose = () => { openGame = null; };
   if (!d.open) d.showModal();
 }
 
@@ -471,7 +657,7 @@ function renderPicker(el) {
   const times = ['', 20, 30, 45, 60, 90, 120, 180, 240];
   el.innerHTML = `
     <div class="card filters">
-      <label class="field wide"><span>Поиск</span><input id="f-q" type="search" placeholder="Название игры" value="${esc(F.q)}"></label>
+      <label class="field wide"><span>Поиск</span><input id="f-q" type="search" placeholder="Название или место, например «шкаф F»" value="${esc(F.q)}"></label>
       <div class="field"><span>Сколько игроков</span>
         <div class="stepper"><button class="btn icon" data-step="-1" aria-label="Меньше игроков">−</button><input id="f-players" type="number" min="1" inputmode="numeric" placeholder="любое" aria-label="Сколько игроков" value="${esc(F.players)}"><button class="btn icon" data-step="1" aria-label="Больше игроков">+</button></div></div>
       <label class="field"><span>Время партии</span><select id="f-time">${times.map(v => `<option value="${v}" ${String(v) === F.time ? 'selected' : ''}>${v ? `до ${v} мин` : 'любое'}</option>`).join('')}</select></label>
@@ -543,23 +729,27 @@ async function refreshGames(e) {
 
 /* ---------- Статистика ---------- */
 
-const statsUI = { q: '', all: false };
+const statsUI = { q: '', all: false, log: false };
 
 function renderStats(el) {
-  const list = playsList();
-  const total = list.reduce((s, x) => s + x.n, 0);
+  const list = playsList(), players = allPlayers(), total = db.log.length;
   el.innerHTML = `
     <div class="tiles">
-      ${tile(total, `${plural(total, 'партия сыграна', 'партии сыграно', 'партий сыграно')}`)}
+      ${tile(total, plural(total, 'партия сыграна', 'партии сыграно', 'партий сыграно'))}
       ${tile(list.filter(x => x.n > 0).length, 'разных игр сыграно')}
-      ${tile(db.players.length, 'игроков')}
+      ${tile(players.length, 'игроков')}
       ${COL.types.map((t, i) => tile(db.games.filter(g => num(g[t]) === 1).length, `игр типа «${typeLabel(t)}»`, 't' + i)).join('')}
     </div>
     <div class="charts">
-      ${pieCard('Победы игроков', db.players.map(p => ({ name: String(p[PL.name]).trim(), value: num(p[PL.wins]) })), n => plural(n, 'победа', 'победы', 'побед'))}
+      ${pieCard('Победы игроков', players.map(p => ({ name: p.name, value: p.wins })), n => plural(n, 'победа', 'победы', 'побед'))}
       ${pieCard('Самые частые игры', list.map(x => ({ name: String(x.name).trim(), value: x.n })), n => plural(n, 'партия', 'партии', 'партий'))}
+      ${topRated()}
     </div>
     <div class="stack">
+      <section class="card">
+        <div class="card-head"><h2>Журнал партий</h2><button class="btn primary sm" data-play="">+ Записать партию</button></div>
+        <div id="log-list"></div>
+      </section>
       <section class="card">
         <div class="card-head"><h2>Игроки</h2></div>
         <div id="players"></div>
@@ -578,19 +768,22 @@ function renderStats(el) {
     const max = Math.max(1, ...rows.map(x => x.n));
     $('#plays-list').innerHTML = rows.map(x => `<div class="bar-row">
         <div><div>${esc(x.name)}</div><div class="bar" style="width:${x.n / max * 100}%"></div></div>
-        <div class="counter"><button class="btn icon sm" data-minus="${esc(x.name)}" aria-label="Убрать партию" ${x.n ? '' : 'disabled'}>−</button><b>${x.n}</b><button class="btn icon sm" data-play="${esc(x.name)}" aria-label="Добавить партию">+</button></div>
+        <div class="counter"><b>${x.n}</b><button class="btn icon sm" data-play="${esc(String(x.name).trim())}" aria-label="Записать партию">+</button></div>
       </div>`).join('') || `<div class="empty">${q ? 'Такой игры нет' : 'Пока ни одной партии'}</div>`;
   };
   $('#s-q').oninput = e => { statsUI.q = e.target.value; showPlays(); };
   $('#s-all').onchange = e => { statsUI.all = e.target.checked; showPlays(); };
-  $('#plays-list').onclick = e => { const b = e.target.closest('[data-minus]'); if (b) addPlay(b.dataset.minus, -1); };
   $('#add-player').onsubmit = e => {
     e.preventDefault();
-    db.players.push({ [PL.name]: e.target.elements.player.value.trim(), [PL.games]: 0, [PL.wins]: 0 });
+    const n = e.target.elements.player.value.trim();
+    if (n.includes(',')) return toast('В имени не должно быть запятой', true);
+    if (db.players.some(p => norm(p[PL.name]) === norm(n))) return toast('Такой игрок уже есть', true);
+    db.players.push({ [PL.name]: n, [PL.games]: 0, [PL.wins]: 0 });
     save('players', 'Игрок добавлен');
     render();
   };
   showPlays();
+  renderLog();
   renderPlayers();
   // наведение (или касание) на долю или строку легенды выделяет пару, остальное приглушается
   el.querySelectorAll('.chart').forEach(c => {
@@ -598,6 +791,33 @@ function renderStats(el) {
     c.onpointerover = e => mark(e.target.closest('[data-i]')?.dataset.i);
     c.onpointerleave = () => mark();
   });
+}
+
+function renderLog() {
+  const box = $('#log-list');
+  const entries = db.log.map((e, i) => ({ e, i, d: parseDate(e[LOG.date]) })).sort((a, b) => (b.d ?? 0) - (a.d ?? 0) || b.i - a.i);
+  const shown = statsUI.log ? entries : entries.slice(0, 10);
+  box.innerHTML = entries.length ? `<ul class="log">${shown.map(({ e, i }) => {
+      const won = new Set(splitNames(e[LOG.winners]).map(norm));
+      const who = splitNames(e[LOG.players]).map(n => won.has(norm(n)) ? `<span class="winner" title="Победитель">${ICON.trophy}${esc(n)}</span>` : esc(n)).join(', ');
+      return `<li><div class="log-date">${esc(e[LOG.date])}</div>
+        <div><div class="log-game">${esc(e[LOG.game])}</div><div class="muted">${who}${won.size ? '' : ' · победила игра'}</div>${String(e[LOG.note] ?? '').trim() ? `<div class="log-note">${esc(e[LOG.note])}</div>` : ''}</div>
+        <button class="btn icon ghost sm" data-unlog="${i}" title="Удалить запись" aria-label="Удалить запись">${ICON.trash}</button></li>`;
+    }).join('')}</ul>${entries.length > 10 ? `<button class="btn ghost sm" id="log-more">${statsUI.log ? 'Свернуть' : `Показать все (${entries.length})`}</button>` : ''}`
+    : '<div class="empty">Пока ни одной партии. Нажмите «Записать партию».</div>';
+  box.onclick = e => {
+    const b = e.target.closest('[data-unlog]');
+    if (b) deletePlay(db.log[b.dataset.unlog]);
+    if (e.target.closest('#log-more')) { statsUI.log = !statsUI.log; renderLog(); }
+  };
+}
+
+function topRated() {  // ранжированные полосы, один цвет: сравнить средние оценки точнее, чем долями
+  const rows = db.games.map(g => ({ name: String(g[COL.name]).trim(), r: ratingOf(g[COL.name]) })).filter(x => x.r)
+    .sort((a, b) => b.r.avg - a.r.avg || b.r.count - a.r.count || byName(a.name, b.name)).slice(0, 8);
+  return `<section class="card chart"><h2>Лучшие по оценкам</h2><div class="muted">средняя оценка игроков, из 5</div>
+    ${rows.length ? `<ul class="top">${rows.map(x => `<li><span title="${esc(x.name)}">${esc(x.name)}</span><span class="top-bar"><i style="width:${x.r.avg / 5 * 100}%"></i></span><b>${x.r.avg.toFixed(1)}</b><span class="muted" title="Оценок">${x.r.count}</span></li>`).join('')}</ul>`
+      : '<div class="empty">Пока нет оценок — их ставят в окне игры</div>'}</section>`;
 }
 
 // Круговая диаграмма: не больше 6 долей, хвост сворачивается в «Остальные». Цвета — слоты палитры по порядку долей.
@@ -624,42 +844,23 @@ function pieCard(title, items, unit) {
 }
 
 function renderPlayers() {
-  const box = $('#players');
-  const rows = db.players.map((p, i) => [p, i]).sort(([a], [b]) => num(b[PL.wins]) - num(a[PL.wins]) || num(b[PL.games]) - num(a[PL.games]));
+  const box = $('#players'), fav = favourites();
+  const rows = allPlayers().sort((a, b) => b.wins - a.wins || b.plays - a.plays || byName(a.name, b.name));
   box.innerHTML = rows.length ? `<div class="table-wrap"><table>
-    <thead><tr><th>${esc(PL.name)}</th><th>${esc(PL.games)}</th><th>${esc(PL.wins)}</th><th>% побед</th><th></th></tr></thead>
-    <tbody>${rows.map(([p, i]) => {
-      const g = num(p[PL.games]), w = num(p[PL.wins]), rate = g ? Math.round(w / g * 100) : null;
-      return `<tr>
-        <td><input data-i="${i}" data-k="${esc(PL.name)}" value="${esc(p[PL.name])}" aria-label="Имя"></td>
-        <td><input type="number" min="0" data-i="${i}" data-k="${esc(PL.games)}" value="${g}" aria-label="${esc(PL.games)}"></td>
-        <td><input type="number" min="0" data-i="${i}" data-k="${esc(PL.wins)}" value="${w}" aria-label="${esc(PL.wins)}"></td>
+    <thead><tr><th>${esc(PL.name)}</th><th>${esc(PL.games)}</th><th>${esc(PL.wins)}</th><th>% побед</th><th>Любимая игра</th><th></th></tr></thead>
+    <tbody>${rows.map(p => {
+      const rate = p.plays ? Math.round(p.wins / p.plays * 100) : null, i = db.players.findIndex(x => norm(x[PL.name]) === norm(p.name));
+      const del = p.plays || i < 0 ? 'disabled title="У игрока есть партии в журнале — удалить нельзя"' : `data-del="${i}" title="Удалить игрока"`;
+      return `<tr><td class="pname">${esc(p.name)}</td><td>${p.plays}</td><td>${p.wins}</td>
         <td><div class="rate"><i><b style="width:${rate ?? 0}%"></b></i>${rate == null ? '—' : rate + '%'}</div></td>
-        <td><div class="actions">
-          <button class="btn sm" data-win="${i}" title="Победил: +1 партия и +1 победа">+ победа</button>
-          <button class="btn sm" data-loss="${i}" title="Проиграл: +1 партия">+ партия</button>
-          <button class="btn icon ghost sm" data-del="${i}" title="Удалить игрока" aria-label="Удалить игрока">${ICON.trash}</button>
-        </div></td></tr>`;
+        <td class="muted">${esc(fav.get(norm(p.name))?.game ?? '—')}</td>
+        <td><div class="actions"><button class="btn icon ghost sm" ${del} aria-label="Удалить игрока">${ICON.trash}</button></div></td></tr>`;
     }).join('')}</tbody></table></div>` : '<div class="empty">Игроков пока нет</div>';
-
-  box.onchange = e => {
-    const t = e.target, p = db.players[t.dataset.i];
-    if (!p) return;
-    p[t.dataset.k] = t.type === 'number' ? Math.max(0, Math.round(num(t.value))) : t.value;
-    save('players');
-    renderPlayers();
-  };
   box.onclick = e => {
-    const b = e.target.closest('button'), p = b && db.players[b.dataset.win ?? b.dataset.loss ?? b.dataset.del];
-    if (!p) return;
-    if (b.dataset.del != null) {
-      if (!confirm(`Удалить игрока «${p[PL.name]}» вместе со статистикой?`)) return;
-      db.players.splice(b.dataset.del, 1);
-    } else {
-      p[PL.games] = num(p[PL.games]) + 1;
-      if (b.dataset.win != null) p[PL.wins] = num(p[PL.wins]) + 1;
-    }
-    save('players', b.dataset.del != null ? 'Игрок удалён' : `${String(p[PL.name]).trim()}: ${b.dataset.win != null ? '+1 победа' : '+1 партия'}`);
+    const b = e.target.closest('[data-del]'), p = b && db.players[b.dataset.del];
+    if (!p || !confirm(`Удалить игрока «${String(p[PL.name]).trim()}»?`)) return;
+    db.players.splice(b.dataset.del, 1);
+    save('players', 'Игрок удалён');
     render();
   };
 }
@@ -784,8 +985,19 @@ document.addEventListener('visibilitychange', async () => {
 });
 if (!API) $('#view').innerHTML = '<div class="empty">Сайт ещё не подключён к Google-таблице: впишите адрес Apps Script в строку <code>const API</code> в index.html (см. README.md).</div>';
 else loadData().then(route, e => {
+  let cached = null;
+  try { cached = JSON.parse(localStorage.getItem(CACHE_KEY)); } catch {}
+  if (cached?.db) {  // нет связи — показываем последнюю загруженную копию
+    db = cached.db;
+    const at = new Date(cached.at).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+    $('#offline').textContent = `Нет связи с таблицей — показаны данные от ${at}. Изменения сейчас не сохранятся.`;
+    $('#offline').hidden = false;
+    return route();
+  }
   $('#view').innerHTML = `<div class="empty">Не удалось загрузить данные из Google-таблицы${e instanceof TypeError ? ' — есть ли интернет?' : ': ' + esc(e.message)}</div>`;
 });
+// иконка на экране телефона и запуск без сети (sw.js); работает только по https или на localhost
+if ('serviceWorker' in navigator && isSecureContext) navigator.serviceWorker.register('sw.js').catch(() => {});
 </script>
 </body>
 </html>

@@ -4,19 +4,21 @@ import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 
 class FakeSheet {
-  constructor(id, name, rows) { Object.assign(this, { id, name, v: rows.map(r => [...r]), f: rows.map(r => r.map(() => '')) }); }
+  constructor(id, name, rows = []) { Object.assign(this, { id, name, v: rows.map(r => [...r]), f: rows.map(r => r.map(() => '')) }); }
   getSheetId() { return this.id; }
   getName() { return this.name; }
-  getLastRow() { return this.v.length; }
+  getLastRow() { let n = this.v.length; while (n && !this.v[n - 1].some(x => String(x ?? '').trim())) n--; return n; }
   getLastColumn() { return Math.max(0, ...this.v.map(r => r.length)); }
   getDataRange() { return this.getRange(1, 1, this.getLastRow(), this.getLastColumn()); }
+  appendRow(row) { this.v.splice(this.getLastRow(), 0, [...row]); this.f.splice(this.getLastRow() - 1, 0, row.map(() => '')); }
+  deleteRow(r) { this.deleteRows(r, 1); }
+  deleteRows(r, n) { this.v.splice(r - 1, n); this.f.splice(r - 1, n); }
   getRange(row, col, nr = 1, nc = 1) {
     const grid = src => Array.from({ length: nr }, (_, i) => Array.from({ length: nc }, (_, j) => src[row - 1 + i]?.[col - 1 + j] ?? ''));
     const put = (i, j, x) => { (this.v[row - 1 + i] ??= [])[col - 1 + j] = x; };
     return {
       getDisplayValues: () => grid(this.v).map(r => r.map(String)),
       getFormulas: () => grid(this.f),
-      getFormula: () => grid(this.f)[0][0],
       clearContent: () => grid(this.v).forEach((r, i) => r.forEach((_, j) => { if (this.v[row - 1 + i]) put(i, j, ''); })),
       setValue: x => put(0, 0, x),
       setValues: vals => {
@@ -27,96 +29,108 @@ class FakeSheet {
   }
 }
 
-function setup({ password = 'secret', games } = {}) {
+function setup({ password = 'secret' } = {}) {
   const sheets = [
-    new FakeSheet(0, 'Лист1', games ?? [['Название', 'Coop', 'Партий'], ['Ханаби', '1', '2'], ['Skull', '0', ''], ['', '', '']]),
-    new FakeSheet(297173692, 'Лист2', [['Название', 'Партий'], ['Ханаби ', '3'], ['Skull', '0'], ['Удалённая', '2']]),
+    new FakeSheet(0, 'Лист1', [['Название', 'Coop', 'Партий', 'Где искать'], ['Ханаби', '1', '0', 'Шкаф F'], ['Skull', '0', '0', ''], ['', '', '', '']]),
     new FakeSheet(489614522, 'Лист3', [['Название', 'ДД/ММ/ГГГГ', 'Заметка', ''], ['TES', '01.08.2027', 'коробка', 'без заголовка']]),
-    new FakeSheet(515997837, 'Лист5', [['Игрок', 'Партий', 'Побед'], ['Оверлорд', '19', '19']]),
+    new FakeSheet(515997837, 'Лист5', [['Игрок', 'Партий', 'Побед'], ['Оверлорд', '0', '0'], ['Азраэль ', '0', '0']]),
   ];
-  const logs = [];
   const ctx = {
-    SpreadsheetApp: { getActive: () => ({ getSheets: () => sheets }) },
+    SpreadsheetApp: { getActive: () => ({
+      getSheets: () => sheets,
+      getSheetByName: name => sheets.find(s => s.name === name) ?? null,
+      insertSheet: name => { const s = new FakeSheet(1000 + sheets.length, name); sheets.push(s); return s; },
+    }) },
     PropertiesService: { getScriptProperties: () => ({ getProperty: () => password }) },
     LockService: { getScriptLock: () => { let held = false; return { waitLock: () => { held = true; }, hasLock: () => held, releaseLock: () => { held = false; } }; } },
     ContentService: { MimeType: { JSON: 'json' }, createTextOutput: s => ({ setMimeType() { return this; }, s }) },
-    Logger: { log: s => logs.push(s) },
   };
   vm.runInNewContext(readFileSync(new URL('./apps-script.gs', import.meta.url), 'utf8'), ctx);
   const get = () => JSON.parse(ctx.doGet().s);
-  const post = body => JSON.parse(ctx.doPost({ postData: { contents: JSON.stringify(body) } }).s);
-  return { sheets, get, post, ctx, logs };
+  const post = body => JSON.parse(ctx.doPost({ postData: { contents: JSON.stringify({ password: 'secret', ...body }) } }).s);
+  const sheet = name => sheets.find(s => s.name === name);
+  const col = (name, header) => { const s = sheet(name); const i = s.v[0].indexOf(header); return s.v.slice(1).map(r => String(r[i] ?? '')); };
+  return { sheets, get, post, ctx, sheet, col };
 }
-const play = (t, name, delta, password = 'secret') => t.post({ op: 'addPlay', name, delta, password });
+const play = (game, players, winners = [], extra = {}) => ({ op: 'log', date: '10.11.2026', game, players, winners, ...extra });
 
-// чтение: заголовки — ключи, пустые строки отброшены, партии собраны из Лист1 (Лист2 больше не читается)
+// чтение: журнала и оценок ещё нет — пустые списки
 let t = setup();
 let data = t.get();
-assert.deepEqual(data.games, [{ Название: 'Ханаби', Coop: '1', Партий: '2' }, { Название: 'Skull', Coop: '0', Партий: '' }]);
-assert.deepEqual(data.plays, [{ Название: 'Ханаби', Партий: '2' }, { Название: 'Skull', Партий: '0' }]);
+assert.deepEqual(data.games[0], { Название: 'Ханаби', Coop: '1', Партий: '0', 'Где искать': 'Шкаф F' });
+assert.deepEqual([data.log, data.ratings], [[], []]);
 assert.deepEqual(data.preorders, [{ Название: 'TES', 'ДД/ММ/ГГГГ': '01.08.2027', Заметка: 'коробка' }]);
-t.sheets.splice(1, 1);  // Лист2 удалён — сайт продолжает работать
-assert.equal(t.get().plays.length, 2);
 
-// без пароля / с чужим паролем / без PASSWORD в настройках — отказ, ничего не меняется
-assert.equal(play(t, 'Ханаби', 1, 'nope').error, 'password');
-assert.equal(play(setup({ password: null }), 'Ханаби', 1, '').error, 'password');
-assert.equal(t.get().plays[0]['Партий'], '2');
-
-// мусор и Лист1 целиком не принимаются
-for (const bad of [{ key: 'games', rows: [] }, { key: 'plays', rows: [] }, { key: 'players', rows: [{ a: { nested: 1 } }] }, { key: 'players', rows: 'x' },
-  { op: 'addPlay', name: 'Ханаби', delta: 5 }, { op: 'addPlay', name: 42, delta: 1 }]) {
-  assert.ok(t.post({ ...bad, password: 'secret' }).error, JSON.stringify(bad));
+// пароль обязателен; мусор не принимается
+assert.equal(t.post({ ...play('Ханаби', ['Оверлорд']), password: 'nope' }).error, 'password');
+assert.equal(setup({ password: null }).post(play('Ханаби', ['Оверлорд'])).error, 'password');
+for (const bad of [play('', ['Оверлорд']), play('Ханаби', []), play('Ханаби', ['Имя, с запятой']), play('Ханаби', 'Оверлорд'),
+  play('Ханаби', ['Оверлорд'], ['x'], { note: 5 }), { op: 'unlog', id: 3 }, { op: 'rate', game: 'Ханаби', player: 'Оверлорд', value: 7 },
+  { key: 'games', rows: [] }, { key: 'players', rows: 'x' }, { key: 'players', rows: [{ a: { nested: 1 } }] }]) {
+  assert.ok(t.post(bad).error, JSON.stringify(bad));
 }
+assert.equal(t.sheet('Журнал'), undefined);  // отказы ничего не создали
 
-// партия: меняется одна ячейка, имя ищется без учёта пробелов и регистра, ниже нуля не уходит
-assert.deepEqual(play(t, 'Ханаби', 1), { ok: true, value: 3 });
-assert.deepEqual(play(t, ' ханаби ', 1), { ok: true, value: 4 });
-assert.deepEqual(play(t, 'Skull', 1), { ok: true, value: 1 });
-assert.deepEqual(play(t, 'Skull', -1), { ok: true, value: 0 });
-assert.deepEqual(play(t, 'Skull', -1), { ok: true, value: 0 });
-assert.deepEqual(t.sheets[0].v.slice(1, 3), [['Ханаби', '1', 4], ['Skull', '0', 0]]);
-assert.match(play(t, 'Нет такой', 1).error, /нет на листе/);
-assert.match(play(setup({ games: [['Название', 'Coop'], ['Ханаби', '1']] }), 'Ханаби', 1).error, /нет столбца «Партий»/);
-t.sheets[0].f[1][2] = '=1+1';
-assert.match(play(t, 'Ханаби', 1).error, /формула/);
+// запись в журнал: лист создаётся сам, счётчики пересчитаны, новый игрок из журнала дописан на Лист5
+const r1 = t.post(play('Ханаби', ['Оверлорд', 'Азраэль', 'Новенький'], ['Оверлорд', 'Азраэль'], { note: 'кооп, победили' }));
+assert.ok(r1.ok && r1.id);
+const r2 = t.post(play(' ханаби ', ['Оверлорд', 'Новенький'], ['Новенький']));
+t.post(play('Skull', ['Оверлорд'], []));
+data = t.get();
+assert.equal(data.log.length, 3);
+assert.deepEqual(data.log[0], { ID: r1.id, Дата: '10.11.2026', Игра: 'Ханаби', Игроки: 'Оверлорд, Азраэль, Новенький', Победители: 'Оверлорд, Азраэль', Заметка: 'кооп, победили' });
+assert.deepEqual(t.col('Лист1', 'Партий'), ['2', '1', '']);  // пустая строка игр осталась пустой
+assert.deepEqual(data.players, [
+  { Игрок: 'Оверлорд', Партий: '3', Побед: '1' },
+  { Игрок: 'Азраэль ', Партий: '1', Побед: '1' },
+  { Игрок: 'Новенький', Партий: '2', Побед: '1' },
+]);
+assert.equal(t.col('Лист1', 'Где искать')[0], 'Шкаф F');  // другие столбцы Лист1 не тронуты
 
-// игроки: «=...» сохраняется как текст; лист с формулами не перезаписывается
+// удаление записи пересчитывает счётчики; несуществующая запись — понятная ошибка
+assert.deepEqual(t.post({ op: 'unlog', id: r2.id }), { ok: true });
+assert.deepEqual(t.col('Лист1', 'Партий'), ['1', '1', '']);
+assert.deepEqual(t.get().players.map(p => [p['Игрок'], p['Партий'], p['Побед']]), [['Оверлорд', '2', '1'], ['Азраэль ', '1', '1'], ['Новенький', '1', '0']]);
+assert.match(t.post({ op: 'unlog', id: r2.id }).error, /нет/);
+
+// игроки: сохранение листа целиком возвращает правильные счётчики, даже если прислали устаревшие
+const stale = t.get().players.map(p => ({ ...p, Партий: 99 }));
+assert.deepEqual(t.post({ key: 'players', rows: stale }), { ok: true });
+assert.equal(t.get().players[0]['Партий'], '2');
+
+// оценки: создание, изменение (без учёта регистра), снятие оценкой 0
+assert.deepEqual(t.post({ op: 'rate', game: 'Ханаби', player: 'Оверлорд', value: 4 }), { ok: true });
+t.post({ op: 'rate', game: 'ханаби', player: 'оверлорд ', value: 5 });
+t.post({ op: 'rate', game: 'Skull', player: 'Азраэль', value: 2 });
+assert.deepEqual(t.get().ratings, [{ Игра: 'Ханаби', Игрок: 'Оверлорд', Оценка: '5' }, { Игра: 'Skull', Игрок: 'Азраэль', Оценка: '2' }]);
+t.post({ op: 'rate', game: 'Skull', player: 'Азраэль', value: 0 });
+assert.equal(t.get().ratings.length, 1);
+
+// «=...» сохраняется как текст, а не формула
+t.post(play('=HACK()', ['=X']));
+assert.equal(t.get().log.at(-1)['Игра'], "'=HACK()");
+
+// формулы в столбце-счётчике: запись в журнал остаётся, а ошибка объясняет, почему счётчики не обновились
 t = setup();
-assert.deepEqual(t.post({ key: 'players', rows: [{ Игрок: '=HACK()', Партий: 1, Побед: 0 }], password: 'secret' }), { ok: true });
-assert.equal(t.get().players[0]['Игрок'], "'=HACK()");
-t.sheets[3].f[1][0] = '=A1';
-assert.match(t.post({ key: 'players', rows: [], password: 'secret' }).error, /формулы/);
+t.sheet('Лист1').f[1][2] = '=1+1';
+assert.match(t.post(play('Ханаби', ['Оверлорд'])).error, /формулы/);
 
 // предзаказы как делает сайт: прочитал, поменял, сохранил — «Заметка» на месте, столбец без заголовка не тронут
 t = setup();
 const pre = t.get().preorders;
 pre[0]['ДД/ММ/ГГГГ'] = '01.12.2026';
 pre.push({ Название: 'Stonesaga', 'ДД/ММ/ГГГГ': '01.03.2027' });
-assert.deepEqual(t.post({ key: 'preorders', rows: pre, password: 'secret' }), { ok: true });
-assert.deepEqual(t.sheets[2].v.slice(1), [['TES', '01.12.2026', 'коробка', 'без заголовка'], ['Stonesaga', '01.03.2027', '']]);
+assert.deepEqual(t.post({ key: 'preorders', rows: pre }), { ok: true });
+assert.deepEqual(t.sheet('Лист3').v.slice(1), [['TES', '01.12.2026', 'коробка', 'без заголовка'], ['Stonesaga', '01.03.2027', '']]);
 
-// обнуление: «Партий» на Лист1 и статистика игроков — 0, остальное не тронуто, пустые строки игроков убраны
+// обнуление = очистка журнала; оценки остаются
 t = setup();
-t.sheets[3].v.splice(2, 0, ['', '', '']);
+t.post(play('Ханаби', ['Оверлорд'], ['Оверлорд']));
+t.post({ op: 'rate', game: 'Ханаби', player: 'Оверлорд', value: 3 });
 t.ctx.resetStats();
-assert.deepEqual(t.sheets[0].v.slice(1), [['Ханаби', '1', 0], ['Skull', '0', 0], ['', '', '']]);
 data = t.get();
-assert.deepEqual(data.players, [{ Игрок: 'Оверлорд', Партий: '0', Побед: '0' }]);
-assert.equal(data.preorders[0]['ДД/ММ/ГГГГ'], '01.08.2027');
-
-// перенос с Лист2: столбец создаётся, партии переезжают по названию, ненайденные — в журнал; повтор ничего не меняет
-t = setup({ games: [['Название', 'Coop'], ['Ханаби', '1'], ['Skull', '0'], ['Новая', '1']] });
-t.ctx.migratePlays();
-assert.deepEqual(t.sheets[0].v, [['Название', 'Coop', 'Партий'], ['Ханаби', '1', 3], ['Skull', '0', 0], ['Новая', '1', 0]]);
-assert.match(t.logs[0], /Не перенесены.*удалённая/);
-t.sheets[0].v[1][2] = 7;  // уже заполненное не меняется (записывается то же значение)
-t.ctx.migratePlays();
-assert.equal(String(t.sheets[0].v[1][2]), '7');
-t.sheets[0].f[2][2] = '=1';  // формулы в столбце — отказ
-assert.throws(() => t.ctx.migratePlays(), /формулы/);
-t = setup();  // столбец «Партий» уже есть и заполнен у Ханаби — берётся только пустая ячейка Skull
-t.ctx.migratePlays();
-assert.deepEqual(t.sheets[0].v.slice(1, 3), [['Ханаби', '1', '2'], ['Skull', '0', 0]]);
+assert.deepEqual([data.log.length, data.ratings.length], [0, 1]);
+assert.deepEqual(t.col('Лист1', 'Партий'), ['0', '0', '']);
+assert.deepEqual(data.players.map(p => p['Побед']), ['0', '0']);
 
 console.log('apps-script.gs: все проверки прошли');
