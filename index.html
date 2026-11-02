@@ -10,6 +10,7 @@
   --bg: #0e1016; --surface: #161922; --surface-2: #1e222d; --border: #282d3a;
   --text: #e9ebf1; --muted: #959cae; --accent: #8b6cff; --accent-soft: rgba(139,108,255,.15);
   --t0: #3ecf8e; --t1: #5aa9ff; --t2: #ff6b6b; --warn: #ffb547; --danger: #ff6b6b;
+  --pie-1: #3987e5; --pie-2: #d95926; --pie-3: #199e70; --pie-4: #c98500; --pie-5: #d55181; --pie-other: #52514e;
   --radius: 14px;
   color-scheme: dark;
 }
@@ -18,6 +19,7 @@
     --bg: #f4f5f9; --surface: #ffffff; --surface-2: #f0f1f6; --border: #e1e3eb;
     --text: #1a1d26; --muted: #687083; --accent: #6a4cf5; --accent-soft: rgba(106,76,245,.1);
     --t0: #12a66a; --t1: #2f7fe0; --t2: #e04848; --warn: #c27a00;
+    --pie-1: #2a78d6; --pie-2: #eb6834; --pie-3: #1baf7a; --pie-4: #eda100; --pie-5: #e87ba4; --pie-other: #c3c2b7;
     color-scheme: light;
   }
 }
@@ -131,6 +133,18 @@ dialog::backdrop { background: rgba(0,0,0,.55); backdrop-filter: blur(3px); }
 .viewer iframe { flex: 1; width: 100%; border: 0; background: #fff; }
 
 /* статистика */
+.charts { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(340px, 100%), 1fr)); gap: 16px; margin-bottom: 16px; }
+.chart h2 { font-size: 17px; margin-bottom: 2px; }
+.chart-body { display: flex; flex-wrap: wrap; align-items: center; gap: 18px 24px; margin-top: 14px; }
+.pie { flex: none; width: 170px; height: 170px; }
+.pie path, .pie circle { stroke: var(--surface); stroke-width: 2; stroke-linejoin: round; transition: opacity .15s; }
+.legend { flex: 1 1 170px; min-width: 0; margin: 0; padding: 0; list-style: none; display: grid; gap: 4px; }
+.legend li { display: grid; grid-template-columns: 10px minmax(0, 1fr) auto 42px; align-items: center; gap: 8px; padding: 4px 6px; border-radius: 8px; font-size: 14px; transition: opacity .15s, background .15s; }
+.legend li > i { width: 10px; height: 10px; border-radius: 3px; }
+.legend li > span:first-of-type { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.legend li > .muted { text-align: right; font-variant-numeric: tabular-nums; }
+.legend li.on { background: var(--surface-2); }
+.chart .dim { opacity: .3; }
 .stack { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; }
 .plays-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(290px, 1fr)); column-gap: 28px; margin-top: 8px; }
 .bar-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; align-items: center; padding: 9px 0; border-bottom: 1px solid var(--border); }
@@ -536,6 +550,10 @@ function renderStats(el) {
       ${tile(db.players.length, 'игроков')}
       ${COL.types.map((t, i) => tile(db.games.filter(g => num(g[t]) === 1).length, `игр типа «${typeLabel(t)}»`, 't' + i)).join('')}
     </div>
+    <div class="charts">
+      ${pieCard('Победы игроков', db.players.map(p => ({ name: String(p[PL.name]).trim(), value: num(p[PL.wins]) })), n => plural(n, 'победа', 'победы', 'побед'))}
+      ${pieCard('Самые частые игры', list.map(x => ({ name: String(x.name).trim(), value: x.n })), n => plural(n, 'партия', 'партии', 'партий'))}
+    </div>
     <div class="stack">
       <section class="card">
         <div class="card-head"><h2>Игроки</h2></div>
@@ -569,6 +587,35 @@ function renderStats(el) {
   };
   showPlays();
   renderPlayers();
+  // наведение (или касание) на долю или строку легенды выделяет пару, остальное приглушается
+  el.querySelectorAll('.chart').forEach(c => {
+    const mark = i => c.querySelectorAll('[data-i]').forEach(x => { x.classList.toggle('dim', i != null && x.dataset.i !== i); x.classList.toggle('on', x.tagName === 'LI' && x.dataset.i === i); });
+    c.onpointerover = e => mark(e.target.closest('[data-i]')?.dataset.i);
+    c.onpointerleave = () => mark();
+  });
+}
+
+// Круговая диаграмма: не больше 6 долей, хвост сворачивается в «Остальные». Цвета — слоты палитры по порядку долей.
+function pieCard(title, items, unit) {
+  const sorted = items.filter(x => x.value > 0).sort((a, b) => b.value - a.value || byName(a.name, b.name));
+  const total = sorted.reduce((s, x) => s + x.value, 0);
+  const head = `<h2>${esc(title)}</h2><div class="muted">всего ${total} ${unit(total)}</div>`;
+  if (!total) return `<section class="card chart">${head}<div class="empty">Пока нет данных</div></section>`;
+  const parts = sorted.length > 6 ? [...sorted.slice(0, 5), { name: 'Остальные', value: sorted.slice(5).reduce((s, x) => s + x.value, 0), other: true }] : sorted;
+  const pct = v => Math.round(v / total * 100) + '%';
+  let angle = -Math.PI / 2;
+  const marks = parts.map((p, i) => {
+    const color = p.other ? 'var(--pie-other)' : `var(--pie-${i + 1})`;
+    const tip = `<title>${esc(`${p.name}: ${p.value} ${unit(p.value)} (${pct(p.value)})`)}</title>`;
+    if (parts.length === 1) return `<circle cx="90" cy="90" r="86" fill="${color}" data-i="${i}">${tip}</circle>`;
+    const a0 = angle, a1 = angle += p.value / total * 2 * Math.PI;
+    const [x0, y0, x1, y1] = [Math.cos(a0), Math.sin(a0), Math.cos(a1), Math.sin(a1)].map(v => (90 + 86 * v).toFixed(2));
+    return `<path d="M90 90L${x0} ${y0}A86 86 0 ${a1 - a0 > Math.PI ? 1 : 0} 1 ${x1} ${y1}Z" fill="${color}" data-i="${i}">${tip}</path>`;
+  });
+  const legend = parts.map((p, i) => `<li data-i="${i}"><i style="background:${p.other ? 'var(--pie-other)' : `var(--pie-${i + 1})`}"></i><span title="${esc(p.name)}">${esc(p.name)}</span><b>${p.value}</b><span class="muted">${pct(p.value)}</span></li>`);
+  return `<section class="card chart">${head}
+    <div class="chart-body"><svg class="pie" viewBox="0 0 180 180" role="img" aria-label="${esc(title)}: ${esc(parts.map(p => `${p.name} ${pct(p.value)}`).join(', '))}">${marks.join('')}</svg>
+    <ul class="legend">${legend.join('')}</ul></div></section>`;
 }
 
 function renderPlayers() {
