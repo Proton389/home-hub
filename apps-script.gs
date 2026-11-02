@@ -16,6 +16,8 @@ function doGet() {
   try {
     var ss = SpreadsheetApp.getActive(), data = {};
     Object.keys(SHEETS).forEach(function (key) { data[key] = readSheet(sheetById(ss, SHEETS[key])); });
+    var games = sheetById(ss, SHEETS.games);
+    data.gameColumns = games.getRange(1, 1, 1, Math.max(1, games.getLastColumn())).getDisplayValues()[0].filter(Boolean);  // поля формы «Новая игра»
     data.log = readNamed(ss, LOG_SHEET);
     data.ratings = readNamed(ss, RATINGS_SHEET);
     return json(data);
@@ -31,6 +33,15 @@ function doPost(e) {
     var expected = PropertiesService.getScriptProperties().getProperty('PASSWORD');
     if (!expected || req.password !== expected) return json({ error: 'password' });
     var bad = json({ error: 'неверный запрос' });
+    if (req.op === 'check') return json({ ok: true });  // сайт проверяет пароль до того, как открыть форму
+    if (req.op === 'saveGame') {
+      var f = req.fields;
+      if (!f || typeof f !== 'object' || Array.isArray(f) || !text(f[GAME_NAME], 200) || !(req.original == null || text(req.original, 200)) ||
+          !Object.keys(f).every(function (k) { return typeof f[k] === 'string' && f[k].length <= 5000; })) return bad;
+      lock.waitLock(20000);
+      saveGame(ss, req.original, f);
+      return json({ ok: true });
+    }
     if (req.op === 'log') {
       if (!text(req.game, 200) || !text(req.date, 20) || !names(req.players) || !req.players.length || !names(req.winners) || !(req.note === undefined || text(req.note, 500, true))) return bad;
       lock.waitLock(20000);
@@ -129,6 +140,41 @@ function findRow(sheet, cols, vals) {
     if (idx.every(function (i, k) { return norm(values[r][i]) === norm(vals[k]); })) return r + 1;
   }
   return 0;
+}
+
+// Добавить игру (original пустой) или изменить игру original. Пишутся только изменённые ячейки; «Партий» считает журнал.
+// Переименование заодно меняет название игры в журнале и оценках, чтобы статистика не разделилась на две игры.
+function saveGame(ss, original, fields) {
+  var sheet = sheetById(ss, SHEETS.games), values = sheet.getDataRange().getDisplayValues(), header = values[0];
+  var nameIdx = header.indexOf(GAME_NAME), name = fields[GAME_NAME].trim(), row = 0;
+  if (nameIdx < 0) throw new Error('На листе «' + sheet.getName() + '» нет столбца «' + GAME_NAME + '»');
+  fields[GAME_NAME] = name;
+  for (var r = 1; r < values.length; r++) {
+    var k = norm(values[r][nameIdx]);
+    if (original && !row && k === norm(original)) row = r + 1;
+    else if (k && k === norm(name)) throw new Error('Игра «' + name + '» уже есть в коллекции');
+  }
+  if (original && !row) throw new Error('Игры «' + original + '» нет в таблице — обновите страницу');
+  var editable = function (h) { return h && h !== GAME_PLAYS && h in fields; };
+  if (!row) {
+    sheet.appendRow(header.map(function (h) { return editable(h) ? safe(fields[h]) : ''; }));
+  } else {
+    var changed = [];
+    header.forEach(function (h, i) { if (editable(h) && values[row - 1][i] !== fields[h]) changed.push(i); });
+    var cells = changed.map(function (i) { return sheet.getRange(row, i + 1); });
+    if (cells.some(function (c) { return c.getFormula(); })) throw new Error('В изменяемых ячейках есть формулы — сайт их не перезаписывает');
+    cells.forEach(function (c, n) { c.setValue(safe(fields[header[changed[n]]])); });
+    if (norm(original) !== norm(name)) {
+      [[LOG_SHEET, 'Игра'], [RATINGS_SHEET, 'Игра']].forEach(function (job) {
+        var s = ss.getSheetByName(job[0]);
+        if (!s || s.getLastRow() < 2) return;
+        var v = s.getDataRange().getDisplayValues(), col = v[0].indexOf(job[1]);
+        if (col < 0 || !v.slice(1).some(function (x) { return norm(x[col]) === norm(original); })) return;
+        s.getRange(2, col + 1, v.length - 1, 1).setValues(v.slice(1).map(function (x) { return [norm(x[col]) === norm(original) ? safe(name) : x[col]]; }));
+      });
+    }
+  }
+  syncCounters(ss);  // новой игре — 0 партий, переименованной — её партии из журнала
 }
 
 // Пересчитать счётчики из журнала: «Партий» на Лист1, «Партий»/«Побед» на Лист5. Новые игроки из журнала дописываются на Лист5.

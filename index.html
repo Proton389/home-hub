@@ -210,6 +210,13 @@ td input:not([type=number]) { min-width: 130px; }
 #log-form .chip { --c: var(--accent); }
 #log-form .chip[data-w] { --c: var(--warn); }
 #log-form .add-row { margin-top: 8px; }
+.gf-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.gf-grid > .field { grid-column: 1 / -1; }
+.gf-grid > .field.num { grid-column: auto; }
+.gf-grid textarea { font: inherit; color: var(--text); background: var(--surface-2); border: 1px solid var(--border); border-radius: 10px; padding: 9px 11px; width: 100%; resize: vertical; min-height: 96px; }
+.gf-grid textarea:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.gf-types { display: flex; flex-wrap: wrap; gap: 8px 18px; }
+.gf-types .check { color: var(--text); font-weight: 400; }
 #log-form .add-row input { padding: 7px 10px; }
 .chip svg { vertical-align: -2px; }
 .ratings { display: grid; gap: 2px; }
@@ -270,7 +277,7 @@ td.pname { font-weight: 600; padding-left: 12px; }
 const API = 'https://script.google.com/macros/s/AKfycbw2fj5R4qPbx6eQ1jQoq0rtN3sbnRUDEmLnlLrDSazVF2KhZX8EnZxORVCDcdZ2oHXe/exec';
 
 // Названия столбцов из Google-таблицы. Переименуете столбцы — поменяйте только здесь.
-const COL = { name: 'Название', min: 'Мин игроков', max: 'Макс игроков', time: 'Время', link: 'Ссылка', rules: 'Правила', cover: 'Обложка', place: 'Где искать', types: ['Coop', 'Noncoop', 'Traitor'] };
+const COL = { name: 'Название', min: 'Мин игроков', max: 'Макс игроков', time: 'Время', link: 'Ссылка', rules: 'Правила', cover: 'Обложка', place: 'Где искать', desc: 'Описание', types: ['Coop', 'Noncoop', 'Traitor'] };
 // Как типы подписаны на сайте (ключи — названия столбцов в таблице).
 const TYPE_LABEL = { Coop: 'Кооператив', Noncoop: 'Соревновательная', Traitor: 'С предателем' };
 const typeLabel = t => TYPE_LABEL[t] ?? t;
@@ -291,6 +298,7 @@ const ICON = {
   book: svg('<path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/>', 14),
   trophy: svg('<path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6"/><path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18"/><path d="M4 22h16"/><path d="M10 14.66V17c0 .55-.47.98-.97 1.21C7.85 18.75 7 20.24 7 22"/><path d="M14 14.66V17c0 .55.47.98.97 1.21C16.15 18.75 17 20.24 17 22"/><path d="M18 2H6v7a6 6 0 0 0 12 0V2Z"/>', 13),
   star: svg('<path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01z"/>', 15),
+  edit: svg('<path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/>', 14),
   pin: svg('<path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0z"/><circle cx="12" cy="10" r="3"/>', 14),
 };
 
@@ -353,6 +361,26 @@ function askPassword(wrong) {
     d.onclick = null;
     d.showModal();
   });
+}
+
+// Спросить и проверить пароль до того, как открыть форму, чтобы не заполнять её зря. Скрипт всё равно проверяет пароль при сохранении.
+async function requirePassword() {
+  for (let wrong = false; ;) {
+    if (!getPw()) {
+      const pw = await askPassword(wrong);
+      if (!pw) return false;
+      setPw(pw);
+    }
+    try {
+      const res = await (await fetch(API, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ op: 'check', password: getPw() }) })).json();
+      if (res.error === 'password') { setPw(''); wrong = true; continue; }
+      if (res.error) toast('Не получилось: ' + res.error, true);
+      return !res.error;
+    } catch {
+      toast('Нет связи с Google-таблицей', true);
+      return false;
+    }
+  }
 }
 
 // shortcut: игроки и предзаказы сохраняются листом целиком, последняя запись побеждает; если два устройства правят один лист в одну секунду, одна правка потеряется. Станет мешать — перейти на команды по строкам, как с партиями.
@@ -528,6 +556,67 @@ async function rate(game, player, value) {
   }
 }
 
+/* ---------- Добавление и правка игр ---------- */
+
+// Поля формы — заголовки листа игр, кроме «Партий» (его считает журнал)
+const gameColumns = () => (db.gameColumns?.length ? db.gameColumns : Object.keys(db.games[0] ?? { [COL.name]: '' })).filter(h => h !== PLAYS.count);
+
+async function showGameForm(g = null) {
+  if (!await requirePassword()) return;
+  const d = $('#dialog'), cols = gameColumns(), numeric = [COL.min, COL.max, COL.time], urls = [COL.link, COL.rules, COL.cover];
+  const val = h => g ? String(g[h] ?? '') : '';
+  const input = h => {
+    const label = `<span>${esc(h)}${h === COL.name ? ' *' : ''}</span>`, v = esc(val(h));
+    if (h === COL.desc) return `<label class="field">${label}<textarea data-col="${esc(h)}" rows="4">${v}</textarea></label>`;
+    if (numeric.includes(h)) return `<label class="field num">${label}<input type="number" min="0" inputmode="numeric" data-col="${esc(h)}" value="${v}"></label>`;
+    return `<label class="field">${label}<input ${urls.includes(h) ? 'inputmode="url" placeholder="https://…"' : ''} data-col="${esc(h)}" value="${v}" ${h === COL.name ? 'required' : ''}></label>`;
+  };
+  const types = cols.filter(h => COL.types.includes(h));
+  d.innerHTML = `<form class="dialog-body" id="game-form" novalidate>
+    <div class="game-top"><h3 class="info-title">${g ? 'Изменить игру' : 'Новая игра'}</h3><button type="button" class="btn icon ghost" id="close" aria-label="Закрыть">✕</button></div>
+    <div class="gf-grid">${cols.filter(h => !COL.types.includes(h)).map(input).join('')}</div>
+    ${types.length ? `<div class="field"><span>Тип</span><div class="gf-types">${types.map(h => `<label class="check"><input type="checkbox" data-col="${esc(h)}" ${num(val(h)) === 1 ? 'checked' : ''}> ${esc(typeLabel(h))}</label>`).join('')}</div></div>` : ''}
+    <div class="muted hint">* — обязательное поле, остальные можно заполнить позже.</div>
+    <div class="form-error" id="gf-error" role="alert"></div>
+    <div class="dialog-actions"><button type="button" class="btn ghost" id="gf-cancel">Отмена</button><button class="btn primary">${g ? 'Сохранить' : 'Добавить игру'}</button></div>
+  </form>`;
+  const f = $('#game-form'), err = msg => { $('#gf-error').textContent = msg; };
+  f.onsubmit = e => {
+    e.preventDefault();
+    const fields = {};
+    f.querySelectorAll('[data-col]').forEach(el => { fields[el.dataset.col] = el.type === 'checkbox' ? (el.checked ? '1' : '0') : el.value.trim(); });
+    const name = fields[COL.name];
+    if (!name) return err('Укажите название');
+    if (db.games.some(x => x !== g && norm(x[COL.name]) === norm(name))) return err('Такая игра уже есть в коллекции');
+    if (fields[COL.min] && fields[COL.max] && num(fields[COL.min]) > num(fields[COL.max])) return err(`«${COL.min}» больше, чем «${COL.max}»`);
+    d.close();
+    saveGame(g, fields);
+  };
+  $('#close').onclick = $('#gf-cancel').onclick = () => d.close();
+  d.onclick = e => { if (e.target === d) d.close(); };
+  if (!d.open) d.showModal();
+  f.querySelector('[data-col]').focus();
+}
+
+function renameLocal(from, to) {  // журнал и оценки хранят название игры текстом — переименовываем и их
+  for (const e of db.log) if (norm(e[LOG.game]) === norm(from)) e[LOG.game] = to;
+  for (const r of db.ratings) if (norm(r[RATE.game]) === norm(from)) r[RATE.game] = to;
+}
+
+async function saveGame(g, fields) {
+  const isNew = !g, original = isNew ? null : String(g[COL.name]), before = isNew ? null : { ...g };
+  if (isNew) db.games.push(g = { ...Object.fromEntries(gameColumns().map(h => [h, ''])), [PLAYS.count]: '0', ...fields });
+  else Object.assign(g, fields);
+  const renamed = !isNew && norm(original) !== norm(fields[COL.name]);
+  if (renamed) renameLocal(original, fields[COL.name]);
+  render();
+  const res = await send(() => ({ op: 'saveGame', original, fields }), isNew ? `Добавлено: ${fields[COL.name]}` : 'Изменения сохранены');
+  if (res) return;
+  if (isNew) db.games.splice(db.games.indexOf(g), 1);  // не сохранилось — возвращаем как было
+  else { Object.assign(g, before); if (renamed) renameLocal(fields[COL.name], original); }
+  render();
+}
+
 function favourites() {  // игрок → игра с его самой высокой оценкой
   const best = new Map();
   for (const r of db.ratings) {
@@ -608,9 +697,10 @@ function showGame(g) {
     <div class="field"><span>Оценки${r ? ` · средняя ${r.avg.toFixed(1)} из 5` : ''}</span>
       <div class="ratings">${ratingRows || '<span class="muted">Сначала добавьте игроков во вкладке «Статистика»</span>'}</div>
       ${ratingRows ? '<div class="muted hint">Нажмите ту же звезду ещё раз, чтобы снять оценку.</div>' : ''}</div>
-    <div class="game-foot"><span class="muted">Партий: <b>${playsOf(name)}</b>${last ? ` · последний раз ${fmtDate(last)}` : ''}</span><span class="foot-actions">${rulesLink(g)}${/^https?:\/\//i.test(link) ? `<a class="btn sm" href="${esc(link)}" target="_blank" rel="noopener">${ICON.ext} Страница игры</a>` : ''}<button class="btn sm" data-play="${esc(name)}">+ партия</button></span></div>
+    <div class="game-foot"><span class="muted">Партий: <b>${playsOf(name)}</b>${last ? ` · последний раз ${fmtDate(last)}` : ''}</span><span class="foot-actions">${rulesLink(g)}${/^https?:\/\//i.test(link) ? `<a class="btn sm" href="${esc(link)}" target="_blank" rel="noopener">${ICON.ext} Страница игры</a>` : ''}<button class="btn sm" id="edit-game">${ICON.edit} Изменить</button><button class="btn sm" data-play="${esc(name)}">+ партия</button></span></div>
   </div>`;
   $('#close').onclick = () => d.close();
+  $('#edit-game').onclick = () => showGameForm(g);
   d.querySelector('.ratings').onclick = e => {
     const b = e.target.closest('[data-rate]');
     if (!b) return;
@@ -666,6 +756,7 @@ function renderPicker(el) {
       <button class="btn primary" id="random">${ICON.dice} Случайная игра</button>
     </div>
     <div class="meta"><span id="count"></span><span class="spacer"></span>
+      <button class="btn sm" id="add-game">+ Добавить игру</button>
       <button class="btn ghost sm" id="reset">Сбросить фильтры</button>
       <button class="btn ghost sm" id="refresh">${ICON.refresh} Обновить данные из таблицы</button></div>
     <div class="grid" id="results"></div>`;
@@ -693,6 +784,7 @@ function renderPicker(el) {
   });
   $('#reset').onclick = () => { Object.assign(F, { q: '', players: '', time: '', types: [], sort: 'name' }); render(); };
   $('#random').onclick = () => showRandom();
+  $('#add-game').onclick = () => showGameForm();
   $('#refresh').onclick = refreshGames;
   showResults();
 }

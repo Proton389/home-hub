@@ -19,6 +19,7 @@ class FakeSheet {
     return {
       getDisplayValues: () => grid(this.v).map(r => r.map(String)),
       getFormulas: () => grid(this.f),
+      getFormula: () => grid(this.f)[0][0],
       clearContent: () => grid(this.v).forEach((r, i) => r.forEach((_, j) => { if (this.v[row - 1 + i]) put(i, j, ''); })),
       setValue: x => put(0, 0, x),
       setValues: vals => {
@@ -132,5 +133,31 @@ data = t.get();
 assert.deepEqual([data.log.length, data.ratings.length], [0, 1]);
 assert.deepEqual(t.col('Лист1', 'Партий'), ['0', '0', '']);
 assert.deepEqual(data.players.map(p => p['Побед']), ['0', '0']);
+
+// игры: проверка пароля, добавление, правка, переименование вместе с журналом и оценками
+t = setup();
+assert.deepEqual(t.get().gameColumns, ['Название', 'Coop', 'Партий', 'Где искать']);
+assert.deepEqual(t.post({ op: 'check' }), { ok: true });
+assert.equal(t.post({ op: 'check', password: 'nope' }).error, 'password');
+for (const bad of [{ fields: { Coop: '1' } }, { fields: { Название: '  ' } }, { fields: { Название: 'X', Coop: 1 } }, { fields: 'x' }, { fields: { Название: 'X' }, original: 5 }]) {
+  assert.ok(t.post({ op: 'saveGame', ...bad }).error, JSON.stringify(bad));
+}
+assert.deepEqual(t.post({ op: 'saveGame', fields: { Название: ' Новая ', Coop: '1', 'Где искать': 'Шкаф A', Партий: '99', Лишний: 'x' } }), { ok: true });
+assert.deepEqual(t.sheet('Лист1').v[3], ['Новая', '1', 0, 'Шкаф A']);  // «Партий» не взят из формы, неизвестный столбец не создан
+assert.match(t.post({ op: 'saveGame', fields: { Название: 'ханаби' } }).error, /уже есть/);
+assert.match(t.post({ op: 'saveGame', original: 'Нет такой', fields: { Название: 'Y' } }).error, /нет в таблице/);
+assert.deepEqual(t.post({ op: 'saveGame', original: 'Skull', fields: { Название: 'Skull', 'Где искать': 'Полка 3' } }), { ok: true });
+assert.deepEqual(t.sheet('Лист1').v[2], ['Skull', '0', 0, 'Полка 3']);
+assert.match(t.post({ op: 'saveGame', original: 'Skull', fields: { Название: 'Новая' } }).error, /уже есть/);  // переименовать в существующую нельзя
+t.post(play('Skull', ['Оверлорд'], ['Оверлорд']));
+t.post({ op: 'rate', game: 'Skull', player: 'Оверлорд', value: 4 });
+assert.deepEqual(t.post({ op: 'saveGame', original: 'skull', fields: { Название: 'Skull Deluxe', Coop: '0', 'Где искать': 'Полка 3' } }), { ok: true });
+data = t.get();
+assert.equal(data.games[1]['Название'], 'Skull Deluxe');
+assert.equal(data.games[1]['Партий'], '1');  // партии переехали вместе с названием
+assert.deepEqual([data.log[0]['Игра'], data.ratings[0]['Игра']], ['Skull Deluxe', 'Skull Deluxe']);
+t.sheet('Лист1').f[1][3] = '=A1';  // формула в изменяемой ячейке — отказ, ничего не меняется
+assert.match(t.post({ op: 'saveGame', original: 'Ханаби', fields: { Название: 'Ханаби', 'Где искать': 'другое' } }).error, /формулы/);
+assert.equal(t.sheet('Лист1').v[1][3], 'Шкаф F');
 
 console.log('apps-script.gs: все проверки прошли');
