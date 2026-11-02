@@ -271,6 +271,17 @@ td.pname { font-weight: 600; padding-left: 12px; }
 .toast { position: fixed; left: 50%; bottom: 22px; transform: translate(-50%, 16px); opacity: 0; pointer-events: none; transition: .2s; padding: 10px 16px; border-radius: 10px; font-weight: 600; background: var(--text); color: var(--bg); box-shadow: 0 8px 30px rgba(0,0,0,.3); max-width: calc(100% - 32px); }
 .toast.show { opacity: 1; transform: translate(-50%, 0); }
 .toast.err { background: var(--danger); color: #fff; }
+/* знакомство с сайтом: затемнение с «окошком» над нужным местом, подсказка рядом, счётчик снизу справа */
+#tour { position: fixed; inset: 0; width: 100%; height: 100%; max-width: none; max-height: none; margin: 0; padding: 0; border: 0; border-radius: 0; background: transparent; overflow: hidden; }
+#tour::backdrop { background: transparent; backdrop-filter: none; }  /* размытие у обычных окон есть, здесь оно спрятало бы подсвеченное место */
+.tour-actions [hidden] { display: none; }
+.tour-hole { position: fixed; border-radius: 12px; box-shadow: 0 0 0 9999px rgba(6, 8, 14, .64); pointer-events: none; transition: left .25s, top .25s, width .25s, height .25s; }
+.tour-pop { position: fixed; width: min(340px, calc(100% - 32px)); padding: 16px 18px; border: 1px solid var(--border); border-radius: 14px; background: var(--surface); color: var(--text); box-shadow: 0 12px 40px rgba(0, 0, 0, .35); transition: left .25s, top .25s; }
+.tour-pop h3 { font-size: 17px; margin-bottom: 6px; }
+.tour-pop p { margin: 0 0 14px; font-size: 14px; line-height: 1.5; }
+.tour-actions { display: flex; align-items: center; gap: 8px; }
+.tour-actions .skip { margin-right: auto; }
+.tour-count { position: fixed; right: 20px; bottom: 20px; padding: 8px 14px; border-radius: 999px; background: var(--surface); color: var(--text); font-size: 14px; font-weight: 700; box-shadow: 0 6px 24px rgba(0, 0, 0, .3); }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
 </style>
 </head>
@@ -292,6 +303,7 @@ td.pname { font-weight: 600; padding-left: 12px; }
 </div>
 <dialog id="dialog"></dialog>
 <dialog id="viewer" class="viewer"></dialog>
+<dialog id="tour" aria-label="Знакомство с сайтом"></dialog>
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
 <script>
@@ -367,7 +379,7 @@ async function loadData() { db = await fetchData(); }
 
 // Свежие данные из таблицы. Применяются, только когда пользователь ничего не вводит и окна закрыты;
 // если за время загрузки что-то сохранили — загруженное уже устарело, грузим ещё раз.
-const busy = () => pending || $('#dialog').open || $('#viewer').open || document.activeElement?.matches('input, textarea, select');
+const busy = () => pending || $('#dialog').open || $('#viewer').open || $('#tour').open || document.activeElement?.matches('input, textarea, select');
 async function refresh() {
   const at = edits, data = await fetchData();
   const apply = () => {
@@ -465,6 +477,7 @@ function route() {
   $('#tabs').innerHTML = branch.tabs.map(x => `<a href="#/${branch.id}/${x.id}" class="${x === tab ? 'active' : ''}" ${x === tab ? 'aria-current="page"' : ''}>${esc(x.title)}</a>`).join('');
   document.title = `${tab.title} · ${branch.title}`;
   render();
+  maybeStartTour();
 }
 
 function render() {
@@ -1185,7 +1198,93 @@ const LINKS = [
 function renderLinks(el) {
   el.innerHTML = `<div class="grid">${LINKS.map(([title, url]) => `<a class="card link-card" href="${esc(url)}" target="_blank" rel="noopener">
     <span class="link-icon">${ICON.ext}</span>
-    <span><b>${esc(title)}</b><span class="muted">${esc(new URL(url).hostname.replace(/^www\./, ''))}</span></span></a>`).join('')}</div>`;
+    <span><b>${esc(title)}</b><span class="muted">${esc(new URL(url).hostname.replace(/^www\./, ''))}</span></span></a>`).join('')}</div>
+    <div style="margin-top:18px"><button class="btn ghost sm" id="replay-tour">Показать подсказки по сайту ещё раз</button></div>`;
+  $('#replay-tour').onclick = () => startTour();
+}
+
+/* ---------- Знакомство с сайтом (при первом посещении) ---------- */
+
+const TOUR_KEY = 'hub-tour';
+const TOUR = [
+  { title: 'Добро пожаловать в Домашний хаб', text: 'Здесь коллекция настольных игр, журнал партий, статистика и предзаказы. Покажу главное — это займёт полминуты.' },
+  { hash: '#/games/picker', el: '.filters', title: 'Подбор игры', text: 'Укажите, сколько вас и сколько есть времени, отметьте тип игры. Поиск ищет и по названию, и по месту хранения — например, «шкаф F». Есть сортировки «Лучшие по оценке» и «Давно не играли».' },
+  { hash: '#/games/picker', el: '#random', title: 'Случайная игра', text: 'Не можете выбрать — сайт вытянет случайную игру из тех, что подходят под фильтры.' },
+  { hash: '#/games/picker', el: '#results .game', title: 'Карточка игры', text: 'Нажмите на карточку: откроются описание, где лежит коробка, правила в PDF и оценки игроков звёздами. Кнопка «+ партия» записывает сыгранную партию в журнал.' },
+  { hash: '#/games/picker', el: '#add-game', title: 'Новые игры', text: 'Новую игру можно добавить прямо с сайта, а исправить — кнопкой «Изменить» в окне игры.' },
+  { hash: '#/games/stats', el: '.charts', title: 'Статистика', text: 'Победы игроков, самые частые и лучшие по оценкам игры. Ниже — журнал всех партий и таблица игроков: карандашом рядом с именем игрока можно его переименовать.' },
+  { hash: '#/games/preorders', el: ['.pre-list', '#add-pre'], title: 'Предзаказы', text: 'Когда ждать новые игры. Пришла коробка — нажмите «✓ Получен», и игра сразу попадёт в коллекцию.' },
+  { hash: '#/games/links', el: '#view .grid', title: 'Полезное', text: 'Подбор протекторов, музыка для игр и приложения-помощники для отдельных игр.' },
+  { el: '#collapse', when: () => matchMedia('(min-width: 821px)').matches, title: 'Боковая панель', text: 'Стрелочкой панель сворачивается до иконок — для игр останется больше места.' },
+  { title: 'Готово!', text: 'Смотреть сайт может любой, а менять данные — только с паролем. На телефон сайт можно поставить как приложение: меню браузера → «Установить приложение» или «На экран „Домой“». Подсказки можно открыть снова во вкладке «Полезное».' },
+];
+let tourOn = false;
+
+function maybeStartTour() {
+  let seen = 'done';
+  try { seen = localStorage.getItem(TOUR_KEY); } catch {}
+  if (!seen && db.games.length) startTour();
+}
+
+function startTour() {
+  if (tourOn) return;
+  tourOn = true;
+  const t = $('#tour'), back = location.hash || '#/games/picker', steps = TOUR.filter(s => !s.when || s.when());
+  t.innerHTML = `<div class="tour-hole"></div>
+    <div class="tour-pop" role="document"><h3 id="tour-title"></h3><p id="tour-text"></p>
+      <div class="tour-actions"><button class="btn ghost sm skip">Пропустить</button><button class="btn sm prev">Назад</button><button class="btn primary sm next">Далее</button></div></div>
+    <div class="tour-count" aria-live="polite"></div>`;
+  t.setAttribute('aria-labelledby', 'tour-title');
+  t.setAttribute('aria-describedby', 'tour-text');
+  const hole = t.querySelector('.tour-hole'), pop = t.querySelector('.tour-pop'), count = t.querySelector('.tour-count');
+  let i = 0, target = null;
+  const find = s => [].concat(s.el ?? []).map(q => document.querySelector(q)).find(el => el?.getClientRects().length);
+  const place = () => {
+    const pad = 6, w = pop.offsetWidth, h = pop.offsetHeight;
+    if (!target) {  // без цели — затемнён весь экран, подсказка по центру
+      Object.assign(hole.style, { left: innerWidth / 2 + 'px', top: innerHeight / 2 + 'px', width: '0px', height: '0px' });
+      Object.assign(pop.style, { left: (innerWidth - w) / 2 + 'px', top: Math.max(16, (innerHeight - h) / 2) + 'px' });
+      return;
+    }
+    const r = target.getBoundingClientRect();
+    Object.assign(hole.style, { left: r.left - pad + 'px', top: r.top - pad + 'px', width: r.width + pad * 2 + 'px', height: r.height + pad * 2 + 'px' });
+    const below = r.bottom + pad + 12, above = r.top - pad - 12 - h, room = innerHeight - 70;  // снизу — место для счётчика
+    const top = below + h <= room ? below : above >= 16 ? above : Math.max(16, room - h);
+    Object.assign(pop.style, { left: Math.min(Math.max(16, r.left), innerWidth - w - 16) + 'px', top: top + 'px' });
+  };
+  const end = () => {
+    try { localStorage.setItem(TOUR_KEY, 'done'); } catch {}
+    removeEventListener('resize', place);
+    removeEventListener('scroll', place, true);
+    t.close();
+    tourOn = false;
+    if (location.hash !== back) location.hash = back;
+  };
+  const show = async (n, dir = 1) => {
+    const s = steps[n];
+    if (s.hash && location.hash !== s.hash) { location.hash = s.hash; await new Promise(r => setTimeout(r, 80)); }
+    target = s.el ? find(s) : null;
+    if (s.el && !target) return steps[n + dir] ? show(n + dir, dir) : end();  // цели нет на экране — шаг пропускаем
+    i = n;
+    target?.scrollIntoView({ block: 'center' });
+    $('#tour-title').textContent = s.title;
+    $('#tour-text').textContent = s.text;
+    pop.querySelector('.prev').hidden = n === 0;
+    pop.querySelector('.next').textContent = n === steps.length - 1 ? 'Готово' : 'Далее';
+    const left = steps.length - 1 - n;
+    count.textContent = left ? `Осталось подсказок: ${left}` : 'Последняя подсказка';
+    place();
+    requestAnimationFrame(place);
+    pop.querySelector('.next').focus();
+  };
+  pop.querySelector('.next').onclick = () => (i === steps.length - 1 ? end() : show(i + 1, 1));
+  pop.querySelector('.prev').onclick = () => show(i - 1, -1);
+  pop.querySelector('.skip').onclick = end;
+  t.oncancel = e => { e.preventDefault(); end(); };  // Esc
+  addEventListener('resize', place);
+  addEventListener('scroll', place, true);
+  t.showModal();
+  show(0);
 }
 
 /* ---------- Запуск ---------- */
