@@ -157,6 +157,9 @@ dialog::backdrop { background: rgba(0,0,0,.55); backdrop-filter: blur(3px); }
 .viewer-head { display: flex; align-items: center; gap: 8px; padding: 10px 12px 10px 18px; border-bottom: 1px solid var(--border); }
 .viewer-head h3 { flex: 1; min-width: 0; font-size: 16px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .viewer iframe { flex: 1; width: 100%; border: 0; background: #fff; }
+.viewer-tabs { flex: none; display: flex; gap: 6px; overflow-x: auto; padding: 8px 12px; border-bottom: 1px solid var(--border); }
+.viewer-tabs .chip { --c: var(--accent); white-space: nowrap; }
+.viewer > .empty { flex: 1; }
 
 /* статистика */
 .charts { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(340px, 100%), 1fr)); gap: 16px; margin-bottom: 16px; }
@@ -622,6 +625,7 @@ async function showGameForm(g = null, prefill = {}, onSaved = null) {
   const input = h => {
     const label = `<span>${esc(h)}${h === COL.name ? ' *' : ''}</span>`, v = esc(val(h));
     if (h === COL.desc) return `<label class="field">${label}<textarea data-col="${esc(h)}" rows="4">${v}</textarea></label>`;
+    if (h === COL.rules) return `<label class="field">${label}<textarea data-col="${esc(h)}" rows="3" placeholder="Основные правила — https://drive.google.com/…&#10;Дополнение «…» — https://…">${v}</textarea><div class="muted hint">Несколько буклетов — каждый с новой строки, подпись перед ссылкой необязательна.</div></label>`;
     if (numeric.includes(h)) return `<label class="field num">${label}<input type="number" min="0" inputmode="numeric" data-col="${esc(h)}" value="${v}"></label>`;
     return `<label class="field">${label}<input ${urls.includes(h) ? 'inputmode="url" placeholder="https://…"' : ''} data-col="${esc(h)}" value="${v}" ${h === COL.name ? 'required' : ''}></label>`;
   };
@@ -786,28 +790,48 @@ document.addEventListener('click', e => {
   if (g) showGame(g);
 });
 
-// Правила: ссылка из столбца COL.rules. Файл с Google Диска открывается в окне сайта, остальные ссылки — в новой вкладке.
+// Правила: столбец COL.rules. В ячейке может быть несколько буклетов — по одному на строку, подпись перед ссылкой необязательна:
+//   Основные правила — https://drive.google.com/file/d/…
+//   Дополнение «Город» — https://drive.google.com/file/d/…
+// Файлы с Google Диска открываются в окне сайта (буклеты — вкладками), остальные — в новой вкладке.
 const driveId = url => String(url).match(/drive\.google\.com\/(?:file\/d\/|open\?id=|uc\?(?:.*&)?id=)([\w-]{10,})/)?.[1];
-function rulesLink(g) {
-  const url = String(g[COL.rules] ?? '').trim();
-  return /^https?:\/\//i.test(url) ? `<a class="btn sm" href="${esc(url)}" target="_blank" rel="noopener" data-rules="${esc(g[COL.name])}">${ICON.book} Правила</a>` : '';
+function rulesList(g) {
+  const text = String(g[COL.rules] ?? ''), re = /https?:\/\/[^\s,;]+/gi, out = [];
+  for (let m, from = 0; (m = re.exec(text)); from = re.lastIndex) {
+    const start = Math.max(from, text.lastIndexOf('\n', m.index) + 1);  // подпись — текст перед ссылкой в той же строке
+    out.push({ label: text.slice(start, m.index).replace(/^[\s,;:|—–-]+|[\s,;:|—–-]+$/g, ''), url: m[0] });
+  }
+  return out.map((r, i) => ({ ...r, label: r.label || (out.length > 1 ? `Буклет ${i + 1}` : 'Правила') }));
 }
-function showRules(name, url) {
-  const v = $('#viewer');
+function rulesLink(g) {
+  const list = rulesList(g);
+  return list.length ? `<a class="btn sm" href="${esc(list[0].url)}" target="_blank" rel="noopener" data-rules="${esc(g[COL.name])}">${ICON.book} Правила${list.length > 1 ? ` · ${list.length}` : ''}</a>` : '';
+}
+function showRules(name, list, i = 0) {
+  const v = $('#viewer'), r = list[i], id = driveId(r.url);
   v.innerHTML = `<div class="viewer-head"><h3>${esc(String(name).trim())} — правила</h3>
-    <a class="btn sm" href="${esc(url)}" target="_blank" rel="noopener">${ICON.ext} В новой вкладке</a>
-    <button class="btn icon ghost" id="viewer-close" aria-label="Закрыть">✕</button></div>
-    <iframe src="https://drive.google.com/file/d/${driveId(url)}/preview" title="Правила: ${esc(name)}"></iframe>`;
+      <a class="btn sm" href="${esc(r.url)}" target="_blank" rel="noopener">${ICON.ext} В новой вкладке</a>
+      <button class="btn icon ghost" id="viewer-close" aria-label="Закрыть">✕</button></div>
+    ${list.length > 1 ? `<div class="viewer-tabs" role="tablist" aria-label="Буклеты правил">${list.map((x, k) =>
+      `<button class="chip" role="tab" aria-selected="${k === i}" aria-pressed="${k === i}" data-booklet="${k}">${esc(x.label)}</button>`).join('')}</div>` : ''}
+    ${id ? `<iframe src="https://drive.google.com/file/d/${id}/preview" title="${esc(r.label)}: ${esc(name)}"></iframe>`
+      : '<div class="empty">Этот буклет не с Google Диска — откройте его кнопкой «В новой вкладке».</div>'}`;
   $('#viewer-close').onclick = () => v.close();
-  v.onclick = e => { if (e.target === v) v.close(); };
+  v.onclick = e => {
+    if (e.target === v) return v.close();
+    const b = e.target.closest('[data-booklet]');
+    if (b) showRules(name, list, +b.dataset.booklet);
+  };
   v.onclose = () => { v.innerHTML = ''; };  // выгрузить PDF, а не держать его в фоне
-  v.showModal();
+  if (!v.open) v.showModal();
 }
 document.addEventListener('click', e => {
   const a = e.target.closest('a[data-rules]');
-  if (!a || !driveId(a.href) || e.ctrlKey || e.metaKey || e.shiftKey) return;  // Ctrl+клик — как обычная ссылка
+  if (!a || e.ctrlKey || e.metaKey || e.shiftKey) return;  // Ctrl+клик — как обычная ссылка
+  const g = db.games.find(x => norm(x[COL.name]) === norm(a.dataset.rules)), list = g ? rulesList(g) : [];
+  if (!list.length || (list.length === 1 && !driveId(list[0].url))) return;  // одна ссылка не с Диска — просто новая вкладка
   e.preventDefault();
-  showRules(a.dataset.rules, a.href);
+  showRules(a.dataset.rules, list);
 });
 
 function renderPicker(el) {
