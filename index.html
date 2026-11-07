@@ -3,6 +3,15 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<script>
+// Smart TV: крупнее интерфейс и заметнее выделение. Узнаём телевизор по браузеру; ?tv=1 / ?tv=0 в адресе — включить/выключить вручную (запоминается)
+(function () {
+  var mode = new URLSearchParams(location.search).get('tv');
+  try { if (mode !== null) localStorage.setItem('hub-tv', mode); else mode = localStorage.getItem('hub-tv'); } catch (e) {}
+  var auto = /SmartTV|SMART-TV|Tizen|Web0S|webOS|NetCast|HbbTV|Android TV|GoogleTV|BRAVIA|AFT[A-Z]|CrKey|VIDAA|Viera/i.test(navigator.userAgent);
+  if (mode === '1' || (mode !== '0' && auto)) document.documentElement.className += ' tv';
+})();
+</script>
 <title>Домашний хаб</title>
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" href="icon-192.png">
@@ -81,7 +90,7 @@ main { padding: 28px clamp(16px, 4vw, 44px) 60px; max-width: 1320px; width: 100%
 .card-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
 .card-head h2 { font-size: 17px; }
 input, select { font: inherit; color: var(--text); background: var(--surface-2); border: 1px solid var(--border); border-radius: 10px; padding: 9px 11px; width: 100%; min-width: 0; }
-input:focus-visible, select:focus-visible, .btn:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+input:focus-visible, select:focus-visible, .btn:focus-visible, a:focus-visible, .chip:focus-visible, textarea:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 input[type=checkbox] { width: auto; accent-color: var(--accent); }
 .btn { font: inherit; font-weight: 600; display: inline-flex; align-items: center; justify-content: center; gap: 7px; padding: 9px 14px; border-radius: 10px; border: 1px solid var(--border); background: var(--surface-2); color: var(--text); cursor: pointer; white-space: nowrap; text-decoration: none; }
 .btn:hover:not(:disabled) { border-color: var(--accent); }
@@ -275,7 +284,7 @@ td.pname { font-weight: 600; padding-left: 12px; }
 .toast.show { opacity: 1; transform: translate(-50%, 0); }
 .toast.err { background: var(--danger); color: #fff; }
 /* знакомство с сайтом: затемнение с «окошком» над нужным местом, подсказка рядом, счётчик снизу справа */
-#tour { position: fixed; inset: 0; width: 100%; height: 100%; max-width: none; max-height: none; margin: 0; padding: 0; border: 0; border-radius: 0; background: transparent; overflow: hidden; }
+#tour { position: fixed; top: 0; left: 0; inset: 0; width: 100%; height: 100%; max-width: none; max-height: none; margin: 0; padding: 0; border: 0; border-radius: 0; background: transparent; overflow: hidden; }
 #tour::backdrop { background: transparent; backdrop-filter: none; }  /* размытие у обычных окон есть, здесь оно спрятало бы подсвеченное место */
 .tour-actions [hidden] { display: none; }
 .tour-hole { position: fixed; border-radius: 12px; box-shadow: 0 0 0 9999px rgba(6, 8, 14, .64); pointer-events: none; transition: left .25s, top .25s, width .25s, height .25s; }
@@ -285,6 +294,14 @@ td.pname { font-weight: 600; padding-left: 12px; }
 .tour-actions { display: flex; align-items: center; gap: 8px; }
 .tour-actions .skip { margin-right: auto; }
 .tour-count { position: fixed; right: 20px; bottom: 20px; padding: 8px 14px; border-radius: 999px; background: var(--surface); color: var(--text); font-size: 14px; font-weight: 700; box-shadow: 0 6px 24px rgba(0, 0, 0, .3); }
+/* Smart TV: смотрят с дивана и управляют пультом */
+html.tv { zoom: 1.3; }
+html.tv dialog { max-height: calc(100vh / 1.3 - 32px); }
+html.tv .viewer { height: calc(100vh / 1.3 - 32px); }
+html.tv :focus { outline: 4px solid var(--accent); outline-offset: 3px; }  /* :focus, а не :focus-visible — старые ТВ-браузеры его не знают */
+html.tv .game:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent); }
+html.tv .game:hover, html.tv .link-card:hover { transform: none; }
+html.tv .collapse { width: 34px; height: 34px; right: -17px; }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
 </style>
 </head>
@@ -1128,8 +1145,8 @@ function renderPreorders(el) {
   const groups = [];
   for (const x of items) {
     const label = x.d ? `${MONTHS[x.d.getMonth()]} ${x.d.getFullYear()}` : 'Без даты';
-    if (groups.at(-1)?.label !== label) groups.push({ label, items: [] });
-    groups.at(-1).items.push(x);
+    if (groups[groups.length - 1]?.label !== label) groups.push({ label, items: [] });
+    groups[groups.length - 1].items.push(x);
   }
 
   el.innerHTML = `
@@ -1264,17 +1281,19 @@ function startTour() {
   let i = 0, target = null;
   const find = s => [].concat(s.el ?? []).map(q => document.querySelector(q)).find(el => el?.getClientRects().length);
   const place = () => {
+    // в режиме ТВ страница увеличена (zoom): переводим экранные пиксели в пиксели внутри окна подсказок
+    const k = t.getBoundingClientRect().width / t.offsetWidth || 1, W = innerWidth / k, H = innerHeight / k;
     const pad = 6, w = pop.offsetWidth, h = pop.offsetHeight;
     if (!target) {  // без цели — затемнён весь экран, подсказка по центру
-      Object.assign(hole.style, { left: innerWidth / 2 + 'px', top: innerHeight / 2 + 'px', width: '0px', height: '0px' });
-      Object.assign(pop.style, { left: (innerWidth - w) / 2 + 'px', top: Math.max(16, (innerHeight - h) / 2) + 'px' });
+      Object.assign(hole.style, { left: W / 2 + 'px', top: H / 2 + 'px', width: '0px', height: '0px' });
+      Object.assign(pop.style, { left: (W - w) / 2 + 'px', top: Math.max(16, (H - h) / 2) + 'px' });
       return;
     }
-    const r = target.getBoundingClientRect();
+    const b = target.getBoundingClientRect(), r = { left: b.left / k, top: b.top / k, bottom: b.bottom / k, width: b.width / k, height: b.height / k };
     Object.assign(hole.style, { left: r.left - pad + 'px', top: r.top - pad + 'px', width: r.width + pad * 2 + 'px', height: r.height + pad * 2 + 'px' });
-    const below = r.bottom + pad + 12, above = r.top - pad - 12 - h, room = innerHeight - 70;  // снизу — место для счётчика
+    const below = r.top + r.height + pad + 12, above = r.top - pad - 12 - h, room = H - 70;  // снизу — место для счётчика
     const top = below + h <= room ? below : above >= 16 ? above : Math.max(16, room - h);
-    Object.assign(pop.style, { left: Math.min(Math.max(16, r.left), innerWidth - w - 16) + 'px', top: top + 'px' });
+    Object.assign(pop.style, { left: Math.min(Math.max(16, r.left), W - w - 16) + 'px', top: top + 'px' });
   };
   const end = () => {
     try { localStorage.setItem(TOUR_KEY, 'done'); } catch {}
@@ -1310,6 +1329,50 @@ function startTour() {
   t.showModal();
   show(0);
 }
+
+/* ---------- Пульт ТВ и клавиатура: стрелки переводят выделение на ближайший элемент в эту сторону ---------- */
+
+const FOCUSABLE = 'a[href], button:not([disabled]), input:not([type=hidden]):not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+function moveFocus(dx, dy) {
+  const scope = [...document.querySelectorAll('dialog[open]')].pop() || document;  // в открытом окне — только внутри него
+  const cur = scope.contains(document.activeElement) && document.activeElement !== document.body ? document.activeElement : null;
+  const items = [...scope.querySelectorAll(FOCUSABLE)].filter(el => el !== cur && el.getClientRects().length && getComputedStyle(el).visibility !== 'hidden');
+  const at = el => { const r = el.getBoundingClientRect(); return { l: r.left, t: r.top, r: r.right, b: r.bottom, x: (r.left + r.right) / 2, y: (r.top + r.bottom) / 2 }; };
+  let best = null, bestScore = Infinity;
+  if (!cur) {  // ничего не выделено — начинаем с первого видимого элемента
+    best = items.find(el => { const a = at(el); return a.b > 0 && a.t < innerHeight; }) || items[0];
+  } else {
+    const c = at(cur);
+    for (const el of items) {
+      const a = at(el);
+      const gap = dx > 0 ? a.l - c.r : dx < 0 ? c.l - a.r : dy > 0 ? a.t - c.b : c.t - a.b;  // расстояние в сторону движения
+      if (gap < -2) continue;  // элемент не в той стороне
+      const cross = dx ? Math.max(0, Math.abs(a.y - c.y) - (a.b - a.t + c.b - c.t) / 2) : Math.max(0, Math.abs(a.x - c.x) - (a.r - a.l + c.r - c.l) / 2);
+      const score = gap + cross * 3 + (dx ? Math.abs(a.y - c.y) : Math.abs(a.x - c.x)) * 0.1;  // ровно напротив — выгоднее
+      if (score < bestScore) { bestScore = score; best = el; }
+    }
+  }
+  if (!best) return false;
+  best.focus({ preventScroll: true });
+  best.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  return true;
+}
+document.addEventListener('keydown', e => {
+  const d = { ArrowUp: [0, -1], ArrowDown: [0, 1], ArrowLeft: [-1, 0], ArrowRight: [1, 0] }[e.key];
+  if (!d || e.altKey || e.ctrlKey || e.metaKey || e.shiftKey || e.defaultPrevented) return;
+  const el = document.activeElement, [dx, dy] = d;
+  // в полях стрелки работают как обычно, но из поля всегда можно уйти — иначе с пультом в нём застрянешь
+  if (el?.matches('input, textarea')) {
+    const start = el.selectionStart, end = el.selectionEnd, len = (el.value || '').length, caret = typeof start === 'number';
+    if (el.tagName === 'TEXTAREA') { if (dx || (dy < 0 ? start > 0 : end < len)) return; }  // уходим с первой строки вверх, с последней — вниз
+    else if (el.type === 'number') { if (dy) return; }  // вверх/вниз меняют число
+    else if (el.type === 'range' || el.type === 'date') { if (dx) return; }
+    else if (dx && caret && (dx < 0 ? end > 0 : start < len)) return;  // курсор не у края поля — двигаем курсор
+  }
+  if (moveFocus(dx, dy)) e.preventDefault();
+});
+// «ОК» на пульте (Enter) открывает выпадающий список; стрелки на нём переводят выделение дальше
+document.addEventListener('keydown', e => { if (e.key === 'Enter' && document.activeElement?.matches('select')) document.activeElement.showPicker?.(); });
 
 /* ---------- Запуск ---------- */
 
