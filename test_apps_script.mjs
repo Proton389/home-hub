@@ -30,13 +30,14 @@ class FakeSheet {
   }
 }
 
-function setup({ password = 'secret' } = {}) {
+function setup({ password = 'secret', props: extra = {} } = {}) {
   const sheets = [
     new FakeSheet(0, 'Лист1', [['Название', 'Coop', 'Партий', 'Где искать'], ['Ханаби', '1', '0', 'Шкаф F'], ['Skull', '0', '0', ''], ['', '', '', '']]),
     new FakeSheet(489614522, 'Лист3', [['Название', 'ДД/ММ/ГГГГ', 'Заметка', ''], ['TES', '01.08.2027', 'коробка', 'без заголовка']]),
     new FakeSheet(515997837, 'Лист5', [['Игрок', 'Партий', 'Побед'], ['Оверлорд', '0', '0'], ['Азраэль ', '0', '0']]),
   ];
-  const drive = { folders: [], copies: [], trashed: [], triggers: [] };
+  const drive = { folders: [], copies: [], trashed: [], triggers: [], today: null, tg: [], cache: {}, logs: [] };
+  const props = { PASSWORD: password, ...extra };
   const ctx = {
     DriveApp: {
       getFoldersByName: n => { const f = drive.folders.filter(x => x.name === n); return { hasNext: () => f.length > 0, next: () => f.shift() }; },
@@ -49,16 +50,21 @@ function setup({ password = 'secret' } = {}) {
     ScriptApp: {
       getProjectTriggers: () => drive.triggers,
       deleteTrigger: tr => drive.triggers.splice(drive.triggers.indexOf(tr), 1),
-      newTrigger: fn => { const tr = { fn, getHandlerFunction: () => fn }; const b = { timeBased: () => b, onMonthDay: d => { tr.day = d; return b; }, atHour: h => { tr.hour = h; return b; }, create: () => drive.triggers.push(tr) }; return b; },
+      newTrigger: fn => { const tr = { fn, getHandlerFunction: () => fn }; const b = { timeBased: () => b, onMonthDay: d => { tr.day = d; return b; }, everyDays: n => { tr.every = n; return b; }, atHour: h => { tr.hour = h; return b; }, create: () => drive.triggers.push(tr) }; return b; },
+      getService: () => ({ getUrl: () => drive.serviceUrl ?? 'https://script.google.com/macros/s/DEPLOY/exec' }),
     },
-    Utilities: { formatDate: d => d.toISOString().slice(0, 10) },
+    Utilities: { formatDate: d => drive.today ?? d.toISOString().slice(0, 10), getUuid: () => 'aaaa-bbbb-cccc' },
+    UrlFetchApp: { fetch: (url, o) => { drive.tg.push({ url, method: url.split('/').pop(), body: JSON.parse(o.payload) }); return { getContentText: () => '{"ok":true}' }; } },
+    CacheService: { getScriptCache: () => ({ get: k => drive.cache[k] ?? null, put: (k, v) => { drive.cache[k] = v; } }) },
+    HtmlService: { createHtmlOutput: s => ({ s }) },
+    Logger: { log: m => drive.logs.push(m) },
     SpreadsheetApp: { getActive: () => ({
       getId: () => 'sheet-id', getName: () => 'Хаб', getSpreadsheetTimeZone: () => 'Europe/Moscow',
       getSheets: () => sheets,
       getSheetByName: name => sheets.find(s => s.name === name) ?? null,
       insertSheet: name => { const s = new FakeSheet(1000 + sheets.length, name); sheets.push(s); return s; },
     }) },
-    PropertiesService: { getScriptProperties: () => ({ getProperty: () => password }) },
+    PropertiesService: { getScriptProperties: () => ({ getProperty: k => props[k] ?? null, setProperty: (k, v) => { props[k] = v; } }) },
     LockService: { getScriptLock: () => { let held = false; return { waitLock: () => { held = true; }, hasLock: () => held, releaseLock: () => { held = false; } }; } },
     ContentService: { MimeType: { JSON: 'json' }, createTextOutput: s => ({ setMimeType() { return this; }, s }) },
   };
@@ -67,7 +73,7 @@ function setup({ password = 'secret' } = {}) {
   const post = body => JSON.parse(ctx.doPost({ postData: { contents: JSON.stringify({ password: 'secret', ...body }) } }).s);
   const sheet = name => sheets.find(s => s.name === name);
   const col = (name, header) => { const s = sheet(name); const i = s.v[0].indexOf(header); return s.v.slice(1).map(r => String(r[i] ?? '')); };
-  return { sheets, get, post, ctx, sheet, col, drive };
+  return { sheets, get, post, ctx, sheet, col, drive, props };
 }
 const play = (game, players, winners = [], extra = {}) => ({ op: 'log', date: '10.11.2026', game, players, winners, ...extra });
 
@@ -228,5 +234,126 @@ assert.equal(t.drive.folders.length, 1);
 for (let i = 0; i < 12; i++) t.ctx.backupMonthly();
 assert.equal(t.drive.copies.length, 14);
 assert.deepEqual([...new Set(t.drive.trashed)].sort((a, b) => a - b), [0, 1]);  // в корзину ушли две самые старые
+
+// Telegram-бот: подключение
+t = setup({ props: { TG_TOKEN: '123:ABC', TG_ADMINS: '111, 222' } });
+const sh1 = t.sheet('Лист1');
+sh1.v = [['Название', 'Мин игроков', 'Макс игроков', 'Время', 'Coop', 'Noncoop', 'Партий', 'Где искать', 'Правила'],
+  ['Ханаби', '2', '5', '30', '1', '0', '0', 'Шкаф F', 'https://drive.google.com/a'],
+  ['Skull', '3', '6', '20', '0', '1', '0', '', 'База https://x.ru/1\nДополнение https://x.ru/2'],
+  ['Сумерки <империи>', '3', '6', '480', '0', '1', '0', '', '']];
+sh1.f = sh1.v.map(r => r.map(() => ''));
+t.post(play('Ханаби', ['Оверлорд', 'Азраэль'], ['Азраэль']));
+t.post(play('Ханаби', ['Оверлорд'], [], { date: '12.11.2026' }));
+t.post({ op: 'rate', game: 'Ханаби', player: 'Оверлорд', value: 4 });
+t.post({ op: 'rate', game: 'Ханаби', player: 'Азраэль', value: 5 });
+t.sheet('Оценки').appendRow(['Ханаби', 'Волчара', '1']);  // оценка того, кто не играл, — не считается
+t.ctx.setupTelegram();
+assert.equal(t.props.TG_SECRET, 'aaaabbbbcccc');
+const hook = t.drive.tg.find(c => c.method === 'setWebhook');
+assert.equal(hook.url, 'https://api.telegram.org/bot123:ABC/setWebhook');
+assert.equal(hook.body.url, 'https://script.google.com/macros/s/DEPLOY/exec?tg=aaaabbbbcccc');
+assert.ok(t.drive.tg.some(c => c.method === 'setMyCommands'));
+assert.match(t.drive.logs[0], /Готово/);
+t.ctx.setupTelegram();  // повторно — секрет тот же, расписание одно
+assert.equal(t.props.TG_SECRET, 'aaaabbbbcccc');
+assert.deepEqual(t.drive.triggers.map(x => [x.fn, x.every, x.hour]), [['tgDaily', 1, 10]]);
+t.drive.serviceUrl = 'https://script.google.com/macros/s/SCRIPT/dev';  // тестовый адрес Telegram не подойдёт
+assert.throws(() => t.ctx.setupTelegram(), /WEBAPP_URL/);
+delete t.drive.serviceUrl;
+
+// команды
+let upd = 0;
+const tgSay = (text, from = 111, chat = from) => {
+  t.drive.tg = [];
+  const r = t.ctx.doPost({ parameter: { tg: t.props.TG_SECRET }, postData: { contents: JSON.stringify({ update_id: ++upd, message: { text, from: { id: from }, chat: { id: chat } } }) } });
+  assert.equal(r.s, 'ok');
+  return t.drive.tg.filter(c => c.method === 'sendMessage').map(c => c.body);
+};
+let [msg] = tgSay('/start', 555);
+assert.equal(msg.chat_id, 555);
+assert.equal(msg.parse_mode, 'HTML');
+assert.match(msg.text, /<code>555<\/code>/);
+[msg] = tgSay('/game ханаби');
+assert.match(msg.text, /<b>Ханаби<\/b>/);
+assert.match(msg.text, /👥 2–5 · ⏱ 30 мин · Кооператив/);
+assert.match(msg.text, /📍 Шкаф F/);
+assert.match(msg.text, /★ 4\.5 \(2 оценки\) · партий: 2, последний раз 12\.11\.2026/);
+[msg] = tgSay('/game@HubBot skull');
+assert.match(msg.text, /<a href="https:\/\/x\.ru\/1">База<\/a> · <a href="https:\/\/x\.ru\/2">Дополнение<\/a>/);
+assert.match(msg.text, /партий: 0$/m);
+[msg] = tgSay('/игра сумерки');  // русская команда тоже работает; < > экранированы
+assert.match(msg.text, /Сумерки &lt;империи&gt;/);
+assert.match(tgSay('/game и')[0].text, /Нашлось 2:\n• Ханаби\n• Сумерки/);  // «и» — в Ханаби и в Сумерках
+assert.match(tgSay('/game zzz')[0].text, /Не нашёл/);
+assert.match(tgSay('/game')[0].text, /Напишите часть названия/);
+for (let i = 0; i < 20; i++) {
+  [msg] = tgSay('/random 2 60');
+  assert.match(msg.text, /Ханаби/);  // на двоих до часа — только Ханаби
+  assert.match(msg.text, /из 1 подходящих/);
+}
+assert.deepEqual(msg.reply_markup.inline_keyboard[0][0], { text: '🎲 Ещё', callback_data: 'rnd|2|60' });
+assert.match(tgSay('/random 9')[0].text, /игр в коллекции нет/);
+assert.match(tgSay('/random')[0].text, /из 3 подходящих/);
+[msg] = tgSay('/stats');
+assert.match(msg.text, /Сыграно партий: 2/);
+assert.match(msg.text, /Азраэль — 1 \/ 1 \(100%\)\nОверлорд — 0 \/ 2 \(0%\)/);
+assert.match(msg.text, /Ханаби — 2/);
+t.drive.today = '2026-11-09';
+[msg] = tgSay('/preorders');
+assert.match(msg.text, /TES — 01\.08\.2027 \(через 265 дней\)/);
+assert.deepEqual(tgSay('просто текст'), []);  // не команда — молчим
+assert.deepEqual(tgSay('/unknown'), []);
+
+// уведомления: выбрать чат может только администратор
+assert.match(tgSay('/notify', 999, -100)[0].text, /только администратор/);
+assert.equal(t.props.TG_CHAT, undefined);
+assert.match(tgSay('/notify', 222, -100)[0].text, /будут приходить сюда/);
+assert.equal(t.props.TG_CHAT, '-100');
+
+// чужие запросы и повторы игнорируются; сайт работает как раньше
+t.drive.tg = [];
+for (const parameter of [{ tg: 'wrong' }, { tg: '' }]) {
+  assert.equal(t.ctx.doPost({ parameter, postData: { contents: JSON.stringify({ update_id: 900, message: { text: '/start', from: { id: 1 }, chat: { id: 1 } } }) } }).s, 'ok');
+}
+assert.equal(t.drive.tg.length, 0);
+const same = { parameter: { tg: t.props.TG_SECRET }, postData: { contents: JSON.stringify({ update_id: 901, message: { text: '/start', from: { id: 1 }, chat: { id: 1 } } }) } };
+t.ctx.doPost(same); t.ctx.doPost(same);
+assert.equal(t.drive.tg.filter(c => c.method === 'sendMessage').length, 1);
+assert.equal(t.post({ op: 'check' }).ok, true);
+
+// кнопка «🎲 Ещё»
+t.drive.tg = [];
+t.ctx.doPost({ parameter: { tg: t.props.TG_SECRET }, postData: { contents: JSON.stringify({ update_id: 902, callback_query: { id: 'cb1', data: 'rnd|2|60', message: { chat: { id: -100 } } } }) } });
+assert.deepEqual(t.drive.tg.map(c => c.method), ['answerCallbackQuery', 'sendMessage']);
+assert.match(t.drive.tg[1].body.text, /Ханаби/);
+
+// ежедневная рассылка: предзаказ завтра и сегодня; 1-го числа — итоги прошлого месяца
+const pre3 = t.get().preorders;
+pre3.push({ Название: 'Stonesaga', 'ДД/ММ/ГГГГ': '01.12.2026' }, { Название: 'Сегодняшний', 'ДД/ММ/ГГГГ': '30.11.2026' });
+t.post({ key: 'preorders', rows: pre3 });
+t.drive.today = '2026-11-30'; t.drive.tg = [];
+t.ctx.tgDaily();
+assert.equal(t.drive.tg.length, 1);
+assert.equal(t.drive.tg[0].body.chat_id, '-100');
+assert.match(t.drive.tg[0].body.text, /Завтра приходит <b>Stonesaga<\/b>/);
+assert.match(t.drive.tg[0].body.text, /Сегодня приходит <b>Сегодняшний<\/b>/);
+t.drive.today = '2026-12-01'; t.drive.tg = [];
+t.ctx.tgDaily();
+assert.match(t.drive.tg[0].body.text, /Сегодня приходит <b>Stonesaga<\/b>/);
+assert.match(t.drive.tg[0].body.text, /Итоги ноября<\/b>: 2 партии\. Чаще всего — Ханаби \(2\)\. Больше всех побед — Азраэль \(1\)\./);
+t.drive.today = '2026-12-05'; t.drive.tg = [];
+t.ctx.tgDaily();
+assert.equal(t.drive.tg.length, 0);  // нечего сказать — молчим
+delete t.props.TG_CHAT;
+t.drive.today = '2026-11-30';
+t.ctx.tgDaily();
+assert.equal(t.drive.tg.length, 0);  // чат не выбран — не шлём
+
+// без ключа бота webhook ничего не делает, а настройка объясняет, чего не хватает
+t = setup();
+assert.equal(t.ctx.doPost({ parameter: { tg: '' }, postData: { contents: '{"update_id":1}' } }).s, 'ok');
+assert.equal(t.drive.tg.length, 0);
+assert.throws(() => t.ctx.setupTelegram(), /TG_TOKEN/);
 
 console.log('apps-script.gs: все проверки прошли');

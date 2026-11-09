@@ -27,6 +27,7 @@ function doGet() {
 }
 
 function doPost(e) {
+  if (e.parameter && e.parameter.tg !== undefined) return telegramWebhook(e);  // сообщения Telegram-бота
   var lock = LockService.getScriptLock();
   try {
     var req = JSON.parse(e.postData.contents), ss = SpreadsheetApp.getActive();
@@ -316,6 +317,231 @@ function setupMonthlyBackup() {
   ScriptApp.getProjectTriggers().forEach(function (t) { if (t.getHandlerFunction() === 'backupMonthly') ScriptApp.deleteTrigger(t); });
   ScriptApp.newTrigger('backupMonthly').timeBased().onMonthDay(1).atHour(4).create();
   backupMonthly();  // первая копия сразу — заодно Google один раз спросит разрешение на Диск
+}
+
+/* ---------- Telegram-бот ---------- */
+// Настройка — README.md, раздел «Telegram-бот». Свойства скрипта: TG_TOKEN — ключ бота от @BotFather,
+// WEBAPP_URL — адрес веб-приложения (/exec), TG_ADMINS — Telegram ID тех, кто может выбирать чат для уведомлений (через запятую).
+// TG_SECRET и TG_CHAT скрипт заполняет сам.
+var SITE_URL = 'https://proton389.github.io/home-hub/';
+var TYPE_LABEL = { Coop: 'Кооператив', Noncoop: 'Соревновательная', Traitor: 'С предателем' };
+var TG_ALIAS = { 'помощь': 'help', 'случайная': 'random', 'игра': 'game', 'стат': 'stats', 'статистика': 'stats', 'предзаказы': 'preorders', 'уведомления': 'notify' };
+var MONTHS_GEN = ['января', 'февраля', 'марта', 'апреля', 'мая', 'июня', 'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря'];
+
+function prop(k) { return PropertiesService.getScriptProperties().getProperty(k); }
+
+function telegramWebhook(e) {
+  var ok = HtmlService.createHtmlOutput('ok');  // HtmlService отвечает сразу, без переадресации, на которую Telegram жалуется
+  if (!prop('TG_TOKEN') || !prop('TG_SECRET') || e.parameter.tg !== prop('TG_SECRET')) return ok;  // не от Telegram — молча игнорируем
+  var u = JSON.parse(e.postData.contents), cache = CacheService.getScriptCache(), key = 'tg' + u.update_id;
+  // Google отвечает Telegram переадресацией, и тот может прислать то же сообщение ещё раз — обрабатываем один раз
+  if (cache.get(key)) return ok;
+  cache.put(key, '1', 21600);
+  try { handleTelegram(u); } catch (err) { console.error(err); }
+  return ok;
+}
+
+function handleTelegram(u) {
+  if (u.callback_query) {  // кнопка «🎲 Ещё»
+    var q = u.callback_query, part = String(q.data || '').split('|');
+    tg('answerCallbackQuery', { callback_query_id: q.id });
+    if (part[0] === 'rnd' && q.message) tgReply(q.message.chat.id, randomGame(Number(part[1]) || 0, Number(part[2]) || 0));
+    return;
+  }
+  var m = u.message;
+  if (!m || !m.text || m.text.charAt(0) !== '/') return;
+  var words = m.text.trim().split(/\s+/), cmd = words[0].slice(1).split('@')[0].toLowerCase(), arg = words.slice(1).join(' ');
+  cmd = TG_ALIAS[cmd] || cmd;
+  var r = cmd === 'start' || cmd === 'help' ? tgHelp(m)
+    : cmd === 'random' ? randomGame(parseInt(words[1], 10) || 0, parseInt(words[2], 10) || 0)
+    : cmd === 'game' ? (arg ? findGame(arg) : { text: 'Напишите часть названия: /game Ханаби' })
+    : cmd === 'stats' ? statsText()
+    : cmd === 'preorders' ? preordersText()
+    : cmd === 'notify' ? notifyHere(m)
+    : null;
+  if (r) tgReply(m.chat.id, r);
+}
+
+function tg(method, payload) {
+  var res = UrlFetchApp.fetch('https://api.telegram.org/bot' + prop('TG_TOKEN') + '/' + method,
+    { method: 'post', contentType: 'application/json', payload: JSON.stringify(payload), muteHttpExceptions: true });
+  return JSON.parse(res.getContentText());
+}
+function tgReply(chat, r) {
+  var body = { chat_id: chat, text: r.text, parse_mode: 'HTML', disable_web_page_preview: true };
+  if (r.buttons) body.reply_markup = { inline_keyboard: r.buttons };
+  return tg('sendMessage', body);
+}
+function h(s) { return String(s === undefined || s === null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
+
+// Сегодня по часовому поясу таблицы (у скрипта он может быть другим)
+function today() {
+  var t = Utilities.formatDate(new Date(), SpreadsheetApp.getActive().getSpreadsheetTimeZone(), 'yyyy-MM-dd').split('-');
+  return new Date(Number(t[0]), Number(t[1]) - 1, Number(t[2]));
+}
+function parseDay(s) {  // «01.12.2026», «01/12/2026» или «2026-12-01»
+  var t = String(s || '').trim(), m = t.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/), d;
+  if (m) d = [m[3], m[2], m[1]]; else { m = t.match(/^(\d{1,2})[./](\d{1,2})[./](\d{4})$/); if (m) d = [m[1], m[2], m[3]]; }
+  return d ? new Date(Number(d[2]), Number(d[1]) - 1, Number(d[0])) : null;
+}
+function fmtDay(d) { return ('0' + d.getDate()).slice(-2) + '.' + ('0' + (d.getMonth() + 1)).slice(-2) + '.' + d.getFullYear(); }
+function daysUntil(d) { return Math.round((d - today()) / 864e5); }
+function plural(n, one, few, many) { var a = Math.abs(n) % 100, b = a % 10; return a > 10 && a < 20 ? many : b === 1 ? one : b >= 2 && b <= 4 ? few : many; }
+
+// Всё, что нужно боту, — так же, как считает сайт: партии и победы из журнала, оценки только от тех, кто играл
+function hubData() {
+  var ss = SpreadsheetApp.getActive(), log = readNamed(ss, LOG_SHEET), plays = {}, played = {}, players = {}, rating = {};
+  var player = function (n) { return players[norm(n)] = players[norm(n)] || { name: n, plays: 0, wins: 0 }; };
+  log.forEach(function (e) {
+    var k = norm(e['Игра']), d = parseDay(e['Дата']), g = plays[k] = plays[k] || { name: String(e['Игра']).trim(), n: 0, last: null };
+    g.n++;
+    if (d && (!g.last || d > g.last)) g.last = d;
+    played[k] = played[k] || {};
+    splitNames(e['Игроки']).forEach(function (n) { player(n).plays++; played[k][norm(n)] = true; });
+    splitNames(e['Победители']).forEach(function (n) { player(n).wins++; });
+  });
+  readNamed(ss, RATINGS_SHEET).forEach(function (r) {
+    var k = norm(r['Игра']), v = Number(r['Оценка']) || 0;
+    if (!v || !(played[k] || {})[norm(r['Игрок'])]) return;
+    var x = rating[k] = rating[k] || { sum: 0, n: 0 };
+    x.sum += v; x.n++;
+  });
+  return { games: readSheet(sheetById(ss, SHEETS.games)).filter(function (g) { return String(g[GAME_NAME]).trim(); }),
+    preorders: readSheet(sheetById(ss, SHEETS.preorders)), log: log, plays: plays, players: players, rating: rating };
+}
+
+function rulesLinks(text) {  // как на сайте: по ссылке на строку, подпись перед ссылкой необязательна
+  var out = [], re = /https?:\/\/[^\s,;]+/gi, m, from = 0, t = String(text || '');
+  while ((m = re.exec(t))) {
+    var start = Math.max(from, t.lastIndexOf('\n', m.index) + 1);
+    out.push({ label: t.slice(start, m.index).replace(/^[\s,;:|—–-]+|[\s,;:|—–-]+$/g, ''), url: m[0] });
+    from = re.lastIndex;
+  }
+  return out.map(function (r, i) { return { url: r.url, label: r.label || (out.length > 1 ? 'Буклет ' + (i + 1) : 'Правила') }; });
+}
+
+function gameCard(g, d) {
+  var k = norm(g[GAME_NAME]), min = String(g['Мин игроков'] || ''), max = String(g['Макс игроков'] || ''), facts = [];
+  if (min || max) facts.push('👥 ' + (!max || min === max ? min : min + '–' + max));
+  if (String(g['Время'] || '').trim()) facts.push('⏱ ' + g['Время'] + ' мин');
+  var types = Object.keys(TYPE_LABEL).filter(function (t) { return Number(g[t]) === 1; }).map(function (t) { return TYPE_LABEL[t]; });
+  if (types.length) facts.push(types.join(', '));
+  var lines = ['<b>' + h(g[GAME_NAME]) + '</b>'];
+  if (facts.length) lines.push(h(facts.join(' · ')));
+  if (String(g['Где искать'] || '').trim()) lines.push('📍 ' + h(g['Где искать']));
+  var r = d.rating[k], p = d.plays[k];
+  lines.push((r ? '★ ' + (r.sum / r.n).toFixed(1) + ' (' + r.n + ' ' + plural(r.n, 'оценка', 'оценки', 'оценок') + ') · ' : '') +
+    'партий: ' + (p ? p.n : 0) + (p && p.last ? ', последний раз ' + fmtDay(p.last) : ''));
+  var rules = rulesLinks(g['Правила']);
+  if (rules.length) lines.push('📖 ' + rules.map(function (x) { return '<a href="' + h(x.url) + '">' + h(x.label) + '</a>'; }).join(' · '));
+  return lines.join('\n');
+}
+
+function randomGame(n, t) {
+  var d = hubData(), pool = d.games.filter(function (g) {
+    var min = Number(g['Мин игроков']) || 0, max = Number(g['Макс игроков']) || 0, time = Number(g['Время']) || 0;
+    return (!n || (min <= n && n <= max)) && (!t || time <= t);
+  });
+  if (!pool.length) return { text: 'Под такие условия игр в коллекции нет.' };
+  var g = pool[Math.floor(Math.random() * pool.length)];
+  var cond = (n ? n + ' ' + plural(n, 'игрок', 'игрока', 'игроков') : '') + (n && t ? ', ' : '') + (t ? 'до ' + t + ' мин' : '');
+  return { text: '🎲 ' + (cond ? 'Для «' + cond + '» выпала' : 'Выпала') + ' — из ' + pool.length + ' подходящих:\n\n' + gameCard(g, d),
+    buttons: [[{ text: '🎲 Ещё', callback_data: 'rnd|' + n + '|' + t }]] };
+}
+
+function findGame(q) {
+  var d = hubData(), key = norm(q);
+  var hits = d.games.filter(function (g) { return norm(g[GAME_NAME]).indexOf(key) >= 0 || norm(g['Где искать']).indexOf(key) >= 0; });
+  var exact = hits.filter(function (g) { return norm(g[GAME_NAME]) === key; });
+  if (exact.length || hits.length === 1) return { text: gameCard(exact[0] || hits[0], d) };
+  if (!hits.length) return { text: 'Не нашёл «' + h(q) + '». Попробуйте часть названия.' };
+  return { text: 'Нашлось ' + hits.length + ':\n' + hits.slice(0, 15).map(function (g) { return '• ' + h(g[GAME_NAME]); }).join('\n') +
+    (hits.length > 15 ? '\n…' : '') + '\n\nУточните название: /game …' };
+}
+
+function statsText() {
+  var d = hubData();
+  if (!d.log.length) return { text: 'В журнале пока нет партий.' };
+  var ps = Object.keys(d.players).map(function (k) { return d.players[k]; }).filter(function (p) { return p.plays; })
+    .sort(function (a, b) { return b.wins - a.wins || b.plays - a.plays; });
+  var top = Object.keys(d.plays).map(function (k) { return d.plays[k]; }).sort(function (a, b) { return b.n - a.n; }).slice(0, 5);
+  return { text: '📊 <b>Сыграно партий: ' + d.log.length + '</b>\n\n<b>Игроки</b> (победы / партии)\n' +
+    ps.map(function (p) { return h(p.name) + ' — ' + p.wins + ' / ' + p.plays + ' (' + Math.round(p.wins / p.plays * 100) + '%)'; }).join('\n') +
+    '\n\n<b>Чаще всего играли</b>\n' + top.map(function (g) { return h(g.name) + ' — ' + g.n; }).join('\n') + '\n\n' + SITE_URL };
+}
+
+function preordersText() {
+  var items = hubData().preorders.filter(function (p) { return String(p['Название'] || '').trim(); })
+    .map(function (p) { return { name: p['Название'], d: parseDay(p['ДД/ММ/ГГГГ']) }; })
+    .sort(function (a, b) { return (a.d || 9e15) - (b.d || 9e15); });
+  if (!items.length) return { text: 'Предзаказов нет.' };
+  return { text: '📦 <b>Предзаказы</b>\n' + items.map(function (x) {
+    if (!x.d) return '• ' + h(x.name) + ' — дата не указана';
+    var n = daysUntil(x.d);
+    return '• ' + h(x.name) + ' — ' + fmtDay(x.d) + (n < 0 ? ' (срок прошёл)' : n === 0 ? ' (сегодня)' : ' (через ' + n + ' ' + plural(n, 'день', 'дня', 'дней') + ')');
+  }).join('\n') };
+}
+
+function isAdmin(from) { return !!from && String(prop('TG_ADMINS') || '').split(/[\s,]+/).indexOf(String(from.id)) >= 0; }
+function notifyHere(m) {
+  if (!isAdmin(m.from)) return { text: 'Выбрать чат для уведомлений может только администратор бота. Ваш Telegram ID: <code>' + (m.from ? m.from.id : '?') + '</code> — его можно добавить в свойство скрипта TG_ADMINS.' };
+  PropertiesService.getScriptProperties().setProperty('TG_CHAT', String(m.chat.id));
+  return { text: '🔔 Уведомления будут приходить сюда: о предзаказах — накануне и в день прихода, итоги месяца — 1-го числа.' };
+}
+function tgHelp(m) {
+  return { text: '<b>Домашний хаб</b> — коллекция настольных игр\n\n' +
+    '/random 4 60 — случайная игра (на 4 игроков, до 60 минут; числа необязательны)\n' +
+    '/game Ханаби — карточка игры: где лежит, правила, оценка, партии\n' +
+    '/stats — статистика игроков и самые частые игры\n' +
+    '/preorders — предзаказы и когда придут\n' +
+    '/notify — присылать уведомления в этот чат (для администратора)\n\n' +
+    'Сайт: ' + SITE_URL + '\nВаш Telegram ID: <code>' + (m.from ? m.from.id : '?') + '</code>' };
+}
+
+// Каждый день (расписание ставит setupTelegram): напоминания о предзаказах, 1-го числа — итоги прошлого месяца
+function tgDaily() {
+  var chat = prop('TG_CHAT');
+  if (!chat || !prop('TG_TOKEN')) return;
+  var d = hubData(), now = today(), msgs = [];
+  d.preorders.forEach(function (p) {
+    var x = parseDay(p['ДД/ММ/ГГГГ']), n = x ? daysUntil(x) : null;
+    if (n === 0) msgs.push('📦 Сегодня приходит <b>' + h(p['Название']) + '</b>');
+    if (n === 1) msgs.push('📦 Завтра приходит <b>' + h(p['Название']) + '</b>');
+  });
+  if (now.getDate() === 1) {
+    var from = new Date(now.getFullYear(), now.getMonth() - 1, 1), month = d.log.filter(function (e) { var x = parseDay(e['Дата']); return x && x >= from && x < now; });
+    if (month.length) {
+      var games = {}, wins = {};
+      month.forEach(function (e) {
+        games[e['Игра']] = (games[e['Игра']] || 0) + 1;
+        splitNames(e['Победители']).forEach(function (n) { wins[n] = (wins[n] || 0) + 1; });
+      });
+      var best = function (o) { return Object.keys(o).sort(function (a, b) { return o[b] - o[a]; })[0]; }, g = best(games), w = best(wins);
+      msgs.push('🗓 <b>Итоги ' + MONTHS_GEN[from.getMonth()] + '</b>: ' +
+        month.length + ' ' + plural(month.length, 'партия', 'партии', 'партий') + '. Чаще всего — ' + h(g) + ' (' + games[g] + ')' +
+        (w ? '. Больше всех побед — ' + h(w) + ' (' + wins[w] + ')' : '') + '.');
+    }
+  }
+  if (msgs.length) tgReply(chat, { text: msgs.join('\n\n') });
+}
+
+// Один раз после того, как добавили TG_TOKEN: подключает бота к этому веб-приложению, задаёт меню команд и ежедневное расписание
+function setupTelegram() {
+  var props = PropertiesService.getScriptProperties();
+  if (!props.getProperty('TG_TOKEN')) throw new Error('Сначала добавьте свойство скрипта TG_TOKEN — ключ бота от @BotFather');
+  var secret = props.getProperty('TG_SECRET') || Utilities.getUuid().replace(/-/g, '');
+  props.setProperty('TG_SECRET', secret);
+  var base = props.getProperty('WEBAPP_URL') || ScriptApp.getService().getUrl();
+  if (!/\/exec$/.test(base || '')) throw new Error('Не знаю адрес веб-приложения (получил «' + base + '»). Добавьте свойство скрипта WEBAPP_URL — адрес, который заканчивается на /exec');
+  var r = tg('setWebhook', { url: base + '?tg=' + secret, allowed_updates: ['message', 'callback_query'], drop_pending_updates: true });
+  if (!r.ok) throw new Error('Telegram ответил ошибкой: ' + r.description + ' — проверьте TG_TOKEN');
+  tg('setMyCommands', { commands: [
+    { command: 'random', description: 'Случайная игра: /random 4 60' }, { command: 'game', description: 'Карточка игры: /game Ханаби' },
+    { command: 'stats', description: 'Статистика игроков' }, { command: 'preorders', description: 'Предзаказы' },
+    { command: 'notify', description: 'Уведомления в этот чат' }, { command: 'help', description: 'Что умеет бот' }] });
+  ScriptApp.getProjectTriggers().forEach(function (t) { if (t.getHandlerFunction() === 'tgDaily') ScriptApp.deleteTrigger(t); });
+  ScriptApp.newTrigger('tgDaily').timeBased().everyDays(1).atHour(10).create();
+  Logger.log('Готово: бот подключён к ' + base + '. Напишите ему /start.');
 }
 
 function norm(s) { return String(s === undefined || s === null ? '' : s).trim().toLowerCase(); }
