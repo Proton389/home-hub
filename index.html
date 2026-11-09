@@ -512,30 +512,33 @@ function render() {
 const splitNames = s => String(s ?? '').split(',').map(x => x.trim()).filter(Boolean);
 const fmtDate = d => d ? `${pad(d.getDate())}.${pad(d.getMonth() + 1)}.${d.getFullYear()}` : '';
 
-// Всё считается из журнала: партии игр, партии и победы игроков, когда играли последний раз. Оценки — средние по игрокам.
-let S = { games: new Map(), players: new Map() }, R = new Map();
+// Всё считается из журнала: партии игр, партии и победы игроков, когда играли последний раз.
+// Оценки — средние по игрокам, причём учитываются только оценки тех, кто играл в эту игру.
+let S = { games: new Map(), players: new Map(), played: new Map() }, R = new Map();
 function computeStats() {
-  const games = new Map(), players = new Map();
+  const games = new Map(), players = new Map(), played = new Map();  // played: игра → кто в неё играл
   const player = n => players.get(norm(n)) ?? players.set(norm(n), { name: n, plays: 0, wins: 0 }).get(norm(n));
   for (const e of db.log) {
     const k = norm(e[LOG.game]), d = parseDate(e[LOG.date]);
     const g = games.get(k) ?? games.set(k, { name: String(e[LOG.game]).trim(), n: 0, last: null }).get(k);
     g.n++;
     if (d && (!g.last || d > g.last)) g.last = d;
-    splitNames(e[LOG.players]).forEach(n => player(n).plays++);
+    const who = played.get(k) ?? played.set(k, new Set()).get(k);
+    splitNames(e[LOG.players]).forEach(n => { player(n).plays++; who.add(norm(n)); });
     splitNames(e[LOG.winners]).forEach(n => player(n).wins++);
   }
   for (const p of db.players) if (String(p[PL.name] ?? '').trim()) player(String(p[PL.name]).trim());  // игроки без партий тоже в списке
-  S = { games, players };
+  S = { games, players, played };
   R = new Map();
   for (const r of db.ratings) {
     const v = num(r[RATE.value]);
-    if (!v) continue;
+    if (!v || !playedBy(r[RATE.game], r[RATE.player])) continue;
     const k = norm(r[RATE.game]), g = R.get(k) ?? R.set(k, { sum: 0, count: 0, by: new Map() }).get(k);
     g.sum += v; g.count++; g.by.set(norm(r[RATE.player]), v);
   }
 }
 const playsOf = name => S.games.get(norm(name))?.n ?? 0;
+const playedBy = (game, player) => !!S.played.get(norm(game))?.has(norm(player));
 const lastPlayed = name => S.games.get(norm(name))?.last ?? null;
 const ratingOf = name => { const r = R.get(norm(name)); return r ? { avg: r.sum / r.count, count: r.count, by: r.by } : null; };
 const allPlayers = () => [...S.players.values()].sort((a, b) => byName(a.name, b.name));
@@ -547,21 +550,23 @@ function playsList() {  // все игры коллекции + игры из ж
   return list;
 }
 
-function showLogForm(gameName = '') {
-  const d = $('#dialog'), sel = new Set(), win = new Set();
-  const game = db.games.find(g => norm(g[COL.name]) === norm(gameName));
+function showLogForm(gameName = '', entry = null) {  // entry — запись журнала, которую исправляем
+  const d = $('#dialog');
+  const sel = new Set(entry ? splitNames(entry[LOG.players]) : []), win = new Set(entry ? splitNames(entry[LOG.winners]) : []);
+  const game = db.games.find(g => norm(g[COL.name]) === norm(entry ? entry[LOG.game] : gameName));
   const names = allPlayers().map(p => p.name);
+  for (const n of sel) if (!names.some(x => norm(x) === norm(n))) names.push(n);
   d.innerHTML = `<form class="dialog-body" id="log-form" novalidate>
-    <div class="game-top"><h3 class="info-title">Записать партию</h3><button type="button" class="btn icon ghost" id="close" aria-label="Закрыть">✕</button></div>
-    <label class="field"><span>Игра</span><input name="game" list="log-games" autocomplete="off" placeholder="Начните вводить название" value="${esc(game ? String(game[COL.name]).trim() : '')}"></label>
+    <div class="game-top"><h3 class="info-title">${entry ? 'Изменить партию' : 'Записать партию'}</h3><button type="button" class="btn icon ghost" id="close" aria-label="Закрыть">✕</button></div>
+    <label class="field"><span>Игра</span><input name="game" list="log-games" autocomplete="off" placeholder="Начните вводить название" value="${esc(game ? String(game[COL.name]).trim() : entry ? String(entry[LOG.game]).trim() : '')}"></label>
     <datalist id="log-games">${db.games.map(g => `<option value="${esc(String(g[COL.name]).trim())}">`).join('')}</datalist>
-    <label class="field"><span>Дата</span><input name="date" type="date" value="${toISO(new Date())}"></label>
+    <label class="field"><span>Дата</span><input name="date" type="date" value="${toISO((entry && parseDate(entry[LOG.date])) || new Date())}"></label>
     <div class="field"><span>Кто играл</span><div class="chips" id="lf-players"></div>
       <div class="add-row"><input id="lf-new" placeholder="Новый игрок" aria-label="Имя нового игрока"><button type="button" class="btn sm" id="lf-add">Добавить</button></div></div>
     <div class="field"><span>Победители</span><div class="chips" id="lf-winners"></div><div class="muted hint">Никого не отметили — значит, победила игра.</div></div>
-    <label class="field"><span>Заметка</span><input name="note" maxlength="300" placeholder="Необязательно"></label>
+    <label class="field"><span>Заметка</span><input name="note" maxlength="300" placeholder="Необязательно" value="${esc(entry ? entry[LOG.note] ?? '' : '')}"></label>
     <div class="form-error" id="lf-error" role="alert"></div>
-    <div class="dialog-actions"><button type="button" class="btn ghost" id="lf-cancel">Отмена</button><button class="btn primary">Записать</button></div>
+    <div class="dialog-actions"><button type="button" class="btn ghost" id="lf-cancel">Отмена</button><button class="btn primary">${entry ? 'Сохранить' : 'Записать'}</button></div>
   </form>`;
   const f = $('#log-form'), err = msg => { $('#lf-error').textContent = msg; };
   const chips = () => {
@@ -588,11 +593,13 @@ function showLogForm(gameName = '') {
   f.onsubmit = e => {
     e.preventDefault();
     const g = db.games.find(x => norm(x[COL.name]) === norm(f.elements.game.value));
-    if (!g) return err(f.elements.game.value.trim() ? 'Такой игры нет в коллекции — выберите из списка' : 'Выберите игру');
+    const keepOld = entry && norm(entry[LOG.game]) === norm(f.elements.game.value);  // игру удалили из коллекции, но запись про неё исправить можно
+    if (!g && !keepOld) return err(f.elements.game.value.trim() ? 'Такой игры нет в коллекции — выберите из списка' : 'Выберите игру');
     if (!parseDate(f.elements.date.value)) return err('Укажите дату');
     if (!sel.size) return err('Отметьте, кто играл');
     d.close();
-    recordPlay(String(g[COL.name]).trim(), fromISO(f.elements.date.value), [...sel], [...win], f.elements.note.value.trim());
+    const args = [g ? String(g[COL.name]).trim() : String(entry[LOG.game]).trim(), fromISO(f.elements.date.value), [...sel], [...win], f.elements.note.value.trim()];
+    entry ? editPlay(entry, ...args) : recordPlay(...args);
   };
   $('#close').onclick = $('#lf-cancel').onclick = () => d.close();
   d.onclick = e => { if (e.target === d) d.close(); };
@@ -607,6 +614,14 @@ async function recordPlay(game, date, players, winners, note) {
   const res = await send(() => ({ op: 'log', date, game, players, winners, note }), `Записано: ${game}`);
   if (res) entry[LOG.id] = res.id;
   else { db.log.splice(db.log.indexOf(entry), 1); render(); }  // не сохранилось — не показываем то, чего нет в таблице
+}
+
+async function editPlay(entry, game, date, players, winners, note) {
+  const before = { ...entry };
+  Object.assign(entry, { [LOG.date]: date, [LOG.game]: game, [LOG.players]: players.join(', '), [LOG.winners]: winners.join(', '), [LOG.note]: note });
+  for (const n of players) if (!db.players.some(p => norm(p[PL.name]) === norm(n))) db.players.push({ [PL.name]: n, [PL.games]: 0, [PL.wins]: 0 });
+  render();
+  if (!await send(() => ({ op: 'editLog', id: entry[LOG.id], date, game, players, winners, note }), `Исправлено: ${game}`)) { Object.assign(entry, before); render(); }
 }
 
 async function deletePlay(entry) {
@@ -709,7 +724,7 @@ function favourites() {  // игрок → игра с его самой выс�
   const best = new Map();
   for (const r of db.ratings) {
     const v = num(r[RATE.value]), k = norm(r[RATE.player]);
-    if (v && v > (best.get(k)?.v ?? 0)) best.set(k, { v, game: String(r[RATE.game]).trim() });
+    if (v && playedBy(r[RATE.game], r[RATE.player]) && v > (best.get(k)?.v ?? 0)) best.set(k, { v, game: String(r[RATE.game]).trim() });
   }
   return best;
 }
@@ -771,7 +786,7 @@ function showGame(g) {
   const name = String(g[COL.name]).trim(), link = String(g[COL.link] ?? ''), r = ratingOf(name), last = lastPlayed(name);
   const onCard = new Set([COL.name, COL.min, COL.max, COL.time, COL.link, COL.rules, COL.cover, COL.place, PLAYS.count, ...COL.types]);
   const extra = Object.entries(g).filter(([k, v]) => !onCard.has(k) && String(v ?? '').trim());
-  const ratingRows = allPlayers().map(p => {
+  const ratingRows = allPlayers().filter(p => playedBy(name, p.name)).map(p => {  // оценивают только те, кто играл
     const v = r?.by.get(norm(p.name)) ?? 0;
     return `<div class="rate-row"><span>${esc(p.name)}</span><span class="stars" role="group" aria-label="Оценка: ${esc(p.name)}">${[1, 2, 3, 4, 5].map(st =>
       `<button type="button" class="star ${st <= v ? 'on' : ''}" data-rate="${st}" data-player="${esc(p.name)}" aria-label="${st} из 5" aria-pressed="${st === v}">★</button>`).join('')}</span></div>`;
@@ -783,7 +798,7 @@ function showGame(g) {
     ${gameFacts(g)}
     ${extra.length ? `<dl class="info">${extra.map(([k, v]) => `<div><dt>${esc(k)}</dt><dd>${esc(v)}</dd></div>`).join('')}</dl>` : '<div class="muted">Описание пока не добавлено.</div>'}
     <div class="field"><span>Оценки${r ? ` · средняя ${r.avg.toFixed(1)} из 5` : ''}</span>
-      <div class="ratings">${ratingRows || '<span class="muted">Сначала добавьте игроков во вкладке «Статистика»</span>'}</div>
+      <div class="ratings">${ratingRows || '<span class="muted">Оценить игру смогут те, кто в неё сыграл: запишите партию — и здесь появятся игроки.</span>'}</div>
       ${ratingRows ? '<div class="muted hint">Нажмите ту же звезду ещё раз, чтобы снять оценку.</div>' : ''}</div>
     <div class="game-foot"><span class="muted">Партий: <b>${playsOf(name)}</b>${last ? ` · последний раз ${fmtDate(last)}` : ''}</span><span class="foot-actions"><button class="btn sm primary" data-play="${esc(name)}">+ партия</button>${rulesLink(g)}${/^https?:\/\//i.test(link) ? `<a class="btn sm" href="${esc(link)}" target="_blank" rel="noopener">${ICON.ext} Страница игры</a>` : ''}<button class="btn sm ghost" id="edit-game">${ICON.edit} Изменить</button></span></div>
   </div>`;
@@ -1002,10 +1017,12 @@ function renderLog() {
       const who = splitNames(e[LOG.players]).map(n => won.has(norm(n)) ? `<span class="winner" title="Победитель">${ICON.trophy}${esc(n)}</span>` : esc(n)).join(', ');
       return `<li><div class="log-date">${esc(e[LOG.date])}</div>
         <div><div class="log-game">${esc(e[LOG.game])}</div><div class="muted">${who}${won.size ? '' : ' · победила игра'}</div>${String(e[LOG.note] ?? '').trim() ? `<div class="log-note">${esc(e[LOG.note])}</div>` : ''}</div>
-        <button class="btn icon ghost sm" data-unlog="${i}" title="Удалить запись" aria-label="Удалить запись">${ICON.trash}</button></li>`;
+        <div class="actions"><button class="btn icon ghost sm" data-edit-log="${i}" title="Изменить запись" aria-label="Изменить запись">${ICON.edit}</button><button class="btn icon ghost sm" data-unlog="${i}" title="Удалить запись" aria-label="Удалить запись">${ICON.trash}</button></div></li>`;
     }).join('')}</ul>${entries.length > 10 ? `<button class="btn ghost sm" id="log-more">${statsUI.log ? 'Свернуть' : `Показать все (${entries.length})`}</button>` : ''}`
     : '<div class="empty">Пока ни одной партии. Нажмите «Записать партию».</div>';
   box.onclick = e => {
+    const ed = e.target.closest('[data-edit-log]');
+    if (ed) return showLogForm('', db.log[ed.dataset.editLog]);
     const b = e.target.closest('[data-unlog]');
     if (b) deletePlay(db.log[b.dataset.unlog]);
     if (e.target.closest('#log-more')) { statsUI.log = !statsUI.log; renderLog(); }

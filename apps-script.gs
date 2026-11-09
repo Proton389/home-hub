@@ -55,12 +55,23 @@ function doPost(e) {
       return json({ ok: true });
     }
     if (req.op === 'log') {
-      if (!text(req.game, 200) || !text(req.date, 20) || !names(req.players) || !req.players.length || !names(req.winners) || !(req.note === undefined || text(req.note, 500, true))) return bad;
+      if (!validPlay(req)) return bad;
       lock.waitLock(20000);
       var id = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
       getOrCreate(ss, LOG_SHEET, LOG_COLS).appendRow([id, req.date, req.game, req.players.join(', '), req.winners.join(', '), req.note || ''].map(safe));
       syncCounters(ss);
       return json({ ok: true, id: id });
+    }
+    if (req.op === 'editLog') {  // исправить запись журнала на месте (ID и порядок записей сохраняются)
+      if (!text(req.id, 40) || !validPlay(req)) return bad;
+      lock.waitLock(20000);
+      var lg = ss.getSheetByName(LOG_SHEET), at = lg && findRow(lg, ['ID'], [req.id]);
+      if (!at) return json({ error: 'Такой записи в журнале нет — обновите страницу' });
+      var hdr = lg.getRange(1, 1, 1, lg.getLastColumn()).getDisplayValues()[0];
+      var vals = { 'Дата': req.date, 'Игра': req.game, 'Игроки': req.players.join(', '), 'Победители': req.winners.join(', '), 'Заметка': req.note || '' };
+      Object.keys(vals).forEach(function (h) { var c = hdr.indexOf(h); if (c >= 0) lg.getRange(at, c + 1).setValue(safe(vals[h])); });
+      syncCounters(ss);
+      return json({ ok: true });
     }
     if (req.op === 'unlog') {
       if (!text(req.id, 40)) return bad;
@@ -73,6 +84,7 @@ function doPost(e) {
     }
     if (req.op === 'rate') {
       if (!text(req.game, 200) || !text(req.player, 100) || [0, 1, 2, 3, 4, 5].indexOf(req.value) < 0) return bad;
+      if (req.value && !playedGame(ss, req.game, req.player)) return json({ error: 'Оценку ставит только тот, кто играл в эту игру' });
       lock.waitLock(20000);
       var sheet = getOrCreate(ss, RATINGS_SHEET, RATING_COLS), r = findRow(sheet, ['Игра', 'Игрок'], [req.game, req.player]);
       if (r && req.value) sheet.getRange(r, RATING_COLS.indexOf('Оценка') + 1).setValue(req.value);
@@ -311,6 +323,15 @@ function inc(map, name) { var k = norm(name); if (k) map[k] = (map[k] || 0) + 1;
 function splitNames(s) { return String(s || '').split(',').map(function (x) { return x.trim(); }).filter(Boolean); }
 function safe(v) { return typeof v === 'string' && v.charAt(0) === '=' ? "'" + v : v; }  // текст «=...» не должен стать формулой
 function text(v, max, allowEmpty) { return typeof v === 'string' && v.length <= max && (allowEmpty || v.trim() !== ''); }
+function validPlay(r) {
+  return text(r.game, 200) && text(r.date, 20) && names(r.players) && r.players.length > 0 && names(r.winners) && (r.note === undefined || text(r.note, 500, true));
+}
+// Есть ли игрок среди игравших в эту игру по журналу (оценивать могут только они)
+function playedGame(ss, game, player) {
+  return readNamed(ss, LOG_SHEET).some(function (e) {
+    return norm(e['Игра']) === norm(game) && splitNames(e['Игроки']).some(function (n) { return norm(n) === norm(player); });
+  });
+}
 function names(list) {
   return Array.isArray(list) && list.length <= 30 && list.every(function (n) { return text(n, 100) && n.indexOf(',') < 0; });
 }

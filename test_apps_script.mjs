@@ -118,10 +118,22 @@ assert.equal(t.get().players[0]['Партий'], '2');
 // оценки: создание, изменение (без учёта регистра), снятие оценкой 0
 assert.deepEqual(t.post({ op: 'rate', game: 'Ханаби', player: 'Оверлорд', value: 4 }), { ok: true });
 t.post({ op: 'rate', game: 'ханаби', player: 'оверлорд ', value: 5 });
-t.post({ op: 'rate', game: 'Skull', player: 'Азраэль', value: 2 });
-assert.deepEqual(t.get().ratings, [{ Игра: 'Ханаби', Игрок: 'Оверлорд', Оценка: '5' }, { Игра: 'Skull', Игрок: 'Азраэль', Оценка: '2' }]);
-t.post({ op: 'rate', game: 'Skull', player: 'Азраэль', value: 0 });
+assert.match(t.post({ op: 'rate', game: 'Skull', player: 'Азраэль', value: 2 }).error, /играл/);  // Азраэль в Skull не играл
+t.post({ op: 'rate', game: 'Skull', player: 'Оверлорд', value: 2 });
+assert.deepEqual(t.get().ratings, [{ Игра: 'Ханаби', Игрок: 'Оверлорд', Оценка: '5' }, { Игра: 'Skull', Игрок: 'Оверлорд', Оценка: '2' }]);
+t.post({ op: 'rate', game: 'Skull', player: 'Оверлорд', value: 0 });  // снять оценку можно всегда
 assert.equal(t.get().ratings.length, 1);
+
+// правка записи журнала: поля меняются на месте, ID тот же, счётчики пересчитаны
+assert.deepEqual(t.post({ ...play('Skull', ['Оверлорд', 'Новенький'], ['Новенький'], { note: 'исправлено', date: '11.11.2026' }), op: 'editLog', id: r1.id }), { ok: true });
+data = t.get();
+assert.deepEqual(data.log.find(e => e.ID === r1.id), { ID: r1.id, Дата: '11.11.2026', Игра: 'Skull', Игроки: 'Оверлорд, Новенький', Победители: 'Новенький', Заметка: 'исправлено' });
+assert.equal(data.log.findIndex(e => e.ID === r1.id), 0);  // место в журнале не сменилось
+assert.deepEqual(t.col('Лист1', 'Партий'), ['0', '2', '']);
+assert.deepEqual(data.players.map(p => [p['Игрок'], p['Партий'], p['Побед']]), [['Оверлорд', '2', '0'], ['Азраэль ', '0', '0'], ['Новенький', '1', '1']]);
+assert.match(t.post({ ...play('Skull', ['Оверлорд']), op: 'editLog', id: 'нет-такой' }).error, /нет/);
+assert.ok(t.post({ ...play('', ['Оверлорд']), op: 'editLog', id: r1.id }).error);
+assert.ok(t.post({ ...play('Skull', []), op: 'editLog', id: r1.id }).error);
 
 // «=...» сохраняется как текст, а не формула
 t.post(play('=HACK()', ['=X']));
