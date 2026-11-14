@@ -268,8 +268,11 @@ td input:not([type=number]) { min-width: 130px; }
 .winner { display: inline-flex; align-items: center; gap: 3px; color: var(--text); font-weight: 600; }
 .winner svg { color: var(--warn); }
 .pts { color: var(--text); font-weight: 600; font-variant-numeric: tabular-nums; }
-#lf-pts summary { font-size: 13px; font-weight: 600; color: var(--muted); cursor: pointer; }
-#lf-pts .ratings { margin-top: 6px; }
+#lf-pts summary { list-style: none; }  /* свёрнутый блок — заметная кнопка «+ Очки», а не мелкая подпись */
+#lf-pts summary::-webkit-details-marker { display: none; }
+#lf-pts summary::before { content: '+'; font-weight: 700; }
+#lf-pts[open] summary::before { content: '−'; }
+#lf-pts .ratings { margin-top: 10px; }
 #log-form .score { width: 110px; padding: 7px 10px; text-align: right; }
 #log-more { margin-top: 8px; }
 .top { list-style: none; margin: 14px 0 0; padding: 0; display: grid; gap: 8px; }
@@ -577,7 +580,7 @@ function showLogForm(gameName = '', entry = null) {  // entry — запись �
     <div class="field"><span>Кто играл</span><div class="chips" id="lf-players"></div>
       <div class="add-row"><input id="lf-new" placeholder="Новый игрок" aria-label="Имя нового игрока"><button type="button" class="btn sm" id="lf-add">Добавить</button></div></div>
     <div class="field"><span>Победители</span><div class="chips" id="lf-winners"></div><div class="muted hint">Никого не отметили — значит, победила игра.</div></div>
-    <details id="lf-pts"${pts.size ? ' open' : ''}><summary>Очки</summary><div class="ratings" id="lf-scores"></div>
+    <details id="lf-pts"${pts.size ? ' open' : ''}><summary class="btn sm">Очки</summary><div class="ratings" id="lf-scores"></div>
       <div class="muted hint">Необязательно. В играх, где есть только победа или поражение, оставьте пустым.</div></details>
     <label class="field"><span>Заметка</span><input name="note" maxlength="300" placeholder="Необязательно" value="${esc(entry ? entry[LOG.note] ?? '' : '')}"></label>
     <div class="form-error" id="lf-error" role="alert"></div>
