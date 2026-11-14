@@ -5,7 +5,8 @@
 var SHEETS = { games: 0, preorders: 489614522, players: 515997837 };
 var WRITABLE = ['preorders', 'players'];  // эти листы сайт сохраняет целиком
 // Журнал и оценки — отдельные листы; скрипт создаёт их сам при первой записи. Не переименовывайте их.
-var LOG_SHEET = 'Журнал', LOG_COLS = ['ID', 'Дата', 'Игра', 'Игроки', 'Победители', 'Заметка'];
+// «Очки» — «Мэри: 120, Инна: 95», только у тех, кому их вписали (в играх на победу/поражение столбец пустой)
+var LOG_SHEET = 'Журнал', LOG_SCORES = 'Очки', LOG_COLS = ['ID', 'Дата', 'Игра', 'Игроки', 'Победители', 'Заметка', LOG_SCORES];
 var RATINGS_SHEET = 'Оценки', RATING_COLS = ['Игра', 'Игрок', 'Оценка'];
 // Столбцы-счётчики: скрипт пересчитывает их из журнала, руками их менять бесполезно
 var GAME_NAME = 'Название', GAME_PLAYS = 'Партий';               // Лист1
@@ -59,20 +60,21 @@ function doPost(e) {
       if (!validPlay(req)) return bad;
       lock.waitLock(20000);
       var id = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
-      getOrCreate(ss, LOG_SHEET, LOG_COLS).appendRow([id, req.date, req.game, req.players.join(', '), req.winners.join(', '), req.note || ''].map(safe));
+      var sh = getOrCreate(ss, LOG_SHEET, LOG_COLS), row = playFields(req);
+      row.ID = id;
+      sh.appendRow(sh.getRange(1, 1, 1, sh.getLastColumn()).getDisplayValues()[0].map(function (h) { return h in row ? safe(row[h]) : ''; }));
       syncCounters(ss);
-      return json({ ok: true, id: id });
+      return json({ ok: true, id: id, scores: true });  // scores — сайт так видит, что скрипт новый и очки записаны
     }
     if (req.op === 'editLog') {  // исправить запись журнала на месте (ID и порядок записей сохраняются)
       if (!text(req.id, 40) || !validPlay(req)) return bad;
       lock.waitLock(20000);
-      var lg = ss.getSheetByName(LOG_SHEET), at = lg && findRow(lg, ['ID'], [req.id]);
+      var lg = getOrCreate(ss, LOG_SHEET, LOG_COLS), at = findRow(lg, ['ID'], [req.id]);
       if (!at) return json({ error: 'Такой записи в журнале нет — обновите страницу' });
-      var hdr = lg.getRange(1, 1, 1, lg.getLastColumn()).getDisplayValues()[0];
-      var vals = { 'Дата': req.date, 'Игра': req.game, 'Игроки': req.players.join(', '), 'Победители': req.winners.join(', '), 'Заметка': req.note || '' };
+      var hdr = lg.getRange(1, 1, 1, lg.getLastColumn()).getDisplayValues()[0], vals = playFields(req);
       Object.keys(vals).forEach(function (h) { var c = hdr.indexOf(h); if (c >= 0) lg.getRange(at, c + 1).setValue(safe(vals[h])); });
       syncCounters(ss);
-      return json({ ok: true });
+      return json({ ok: true, scores: true });
     }
     if (req.op === 'unlog') {
       if (!text(req.id, 40)) return bad;
@@ -119,7 +121,22 @@ function readNamed(ss, name) {
 function getOrCreate(ss, name, cols) {
   var sheet = ss.getSheetByName(name) || ss.insertSheet(name);
   if (!sheet.getLastRow()) sheet.appendRow(cols);
+  var hdr = sheet.getRange(1, 1, 1, Math.max(1, sheet.getLastColumn())).getDisplayValues()[0];
+  var missing = cols.filter(function (c) { return hdr.indexOf(c) < 0; });  // например, «Очки» у журнала, созданного раньше
+  if (missing.length) sheet.getRange(1, sheet.getLastColumn() + 1, 1, missing.length).setValues([missing]);
   return sheet;
+}
+
+// Запись журнала из запроса сайта: столбец → значение
+function playFields(r) {
+  var s = r.scores || {};
+  return { 'Дата': r.date, 'Игра': r.game, 'Игроки': r.players.join(', '), 'Победители': r.winners.join(', '), 'Заметка': r.note || '',
+    'Очки': r.players.filter(function (n) { return Object.prototype.hasOwnProperty.call(s, n); }).map(function (n) { return n + ': ' + s[n]; }).join(', ') };
+}
+// «Мэри: 120» → ['Мэри', ': 120']; без очков — [текст, '']
+function scorePart(x) {
+  var m = String(x).match(/^(.*):\s*(-?\d+(?:\.\d+)?)$/);
+  return m ? [m[1], ': ' + m[2]] : [x, ''];
 }
 
 // Лист → массив строк { "Заголовок столбца": "значение как в ячейке" }
@@ -219,13 +236,16 @@ function renamePlayer(ss, from, to) {
   var log = ss.getSheetByName(LOG_SHEET);
   if (log && log.getLastRow() > 1) {
     var lv = log.getDataRange().getDisplayValues();
-    ['Игроки', 'Победители'].forEach(function (h) {
+    ['Игроки', 'Победители', LOG_SCORES].forEach(function (h) {
       var c = lv[0].indexOf(h);
       if (c < 0) return;
       var out = lv.slice(1).map(function (row) {
         var seen = {};
-        return [safe(splitNames(row[c]).map(function (n) { return norm(n) === norm(from) ? to : n; })
-          .filter(function (n) { var k = norm(n); return seen[k] ? false : (seen[k] = true); }).join(', '))];
+        return [safe(splitNames(row[c]).map(function (x) {
+          var p = h === LOG_SCORES ? scorePart(x) : [x, ''];
+          return [norm(p[0]) === norm(from) ? to : p[0], p[1]];
+        }).filter(function (p) { var k = norm(p[0]); return seen[k] ? false : (seen[k] = true); })
+          .map(function (p) { return p[0] + p[1]; }).join(', '))];
       });
       if (out.some(function (x, i) { return x[0] !== lv[i + 1][c]; })) log.getRange(2, c + 1, out.length, 1).setValues(out);
     });
@@ -550,7 +570,10 @@ function splitNames(s) { return String(s || '').split(',').map(function (x) { re
 function safe(v) { return typeof v === 'string' && v.charAt(0) === '=' ? "'" + v : v; }  // текст «=...» не должен стать формулой
 function text(v, max, allowEmpty) { return typeof v === 'string' && v.length <= max && (allowEmpty || v.trim() !== ''); }
 function validPlay(r) {
-  return text(r.game, 200) && text(r.date, 20) && names(r.players) && r.players.length > 0 && names(r.winners) && (r.note === undefined || text(r.note, 500, true));
+  return text(r.game, 200) && text(r.date, 20) && names(r.players) && r.players.length > 0 && names(r.winners) && (r.note === undefined || text(r.note, 500, true)) &&
+    (r.scores === undefined || (!!r.scores && typeof r.scores === 'object' && !Array.isArray(r.scores) && Object.keys(r.scores).every(function (k) {
+      return r.players.indexOf(k) >= 0 && typeof r.scores[k] === 'number' && Math.abs(r.scores[k]) < 1e9;  // очки — только у игравших и только числа
+    })));
 }
 // Есть ли игрок среди игравших в эту игру по журналу (оценивать могут только они)
 function playedGame(ss, game, player) {

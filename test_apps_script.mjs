@@ -101,7 +101,7 @@ const r2 = t.post(play(' ханаби ', ['Оверлорд', 'Новеньки�
 t.post(play('Skull', ['Оверлорд'], []));
 data = t.get();
 assert.equal(data.log.length, 3);
-assert.deepEqual(data.log[0], { ID: r1.id, Дата: '10.11.2026', Игра: 'Ханаби', Игроки: 'Оверлорд, Азраэль, Новенький', Победители: 'Оверлорд, Азраэль', Заметка: 'кооп, победили' });
+assert.deepEqual(data.log[0], { ID: r1.id, Дата: '10.11.2026', Игра: 'Ханаби', Игроки: 'Оверлорд, Азраэль, Новенький', Победители: 'Оверлорд, Азраэль', Заметка: 'кооп, победили', Очки: '' });
 assert.deepEqual(t.col('Лист1', 'Партий'), ['2', '1', '']);  // пустая строка игр осталась пустой
 assert.deepEqual(data.players, [
   { Игрок: 'Оверлорд', Партий: '3', Побед: '1' },
@@ -131,15 +131,44 @@ t.post({ op: 'rate', game: 'Skull', player: 'Оверлорд', value: 0 });  //
 assert.equal(t.get().ratings.length, 1);
 
 // правка записи журнала: поля меняются на месте, ID тот же, счётчики пересчитаны
-assert.deepEqual(t.post({ ...play('Skull', ['Оверлорд', 'Новенький'], ['Новенький'], { note: 'исправлено', date: '11.11.2026' }), op: 'editLog', id: r1.id }), { ok: true });
+assert.deepEqual(t.post({ ...play('Skull', ['Оверлорд', 'Новенький'], ['Новенький'], { note: 'исправлено', date: '11.11.2026' }), op: 'editLog', id: r1.id }), { ok: true, scores: true });
 data = t.get();
-assert.deepEqual(data.log.find(e => e.ID === r1.id), { ID: r1.id, Дата: '11.11.2026', Игра: 'Skull', Игроки: 'Оверлорд, Новенький', Победители: 'Новенький', Заметка: 'исправлено' });
+assert.deepEqual(data.log.find(e => e.ID === r1.id), { ID: r1.id, Дата: '11.11.2026', Игра: 'Skull', Игроки: 'Оверлорд, Новенький', Победители: 'Новенький', Заметка: 'исправлено', Очки: '' });
 assert.equal(data.log.findIndex(e => e.ID === r1.id), 0);  // место в журнале не сменилось
 assert.deepEqual(t.col('Лист1', 'Партий'), ['0', '2', '']);
 assert.deepEqual(data.players.map(p => [p['Игрок'], p['Партий'], p['Побед']]), [['Оверлорд', '2', '0'], ['Азраэль ', '0', '0'], ['Новенький', '1', '1']]);
 assert.match(t.post({ ...play('Skull', ['Оверлорд']), op: 'editLog', id: 'нет-такой' }).error, /нет/);
 assert.ok(t.post({ ...play('', ['Оверлорд']), op: 'editLog', id: r1.id }).error);
 assert.ok(t.post({ ...play('Skull', []), op: 'editLog', id: r1.id }).error);
+
+// очки: «Имя: число» только у тех, кому вписали; в играх без очков столбец пустой; мусор не принимается
+t = setup();
+for (const bad of [{ scores: [5] }, { scores: { Оверлорд: '5' } }, { scores: { Чужой: 5 } }, { scores: { Оверлорд: 1e12 } }, { scores: null }]) {
+  assert.ok(t.post(play('Skull', ['Оверлорд', 'Азраэль'], [], bad)).error, JSON.stringify(bad));
+}
+const s1 = t.post(play('Skull', ['Оверлорд', 'Азраэль', 'Новенький'], ['Азраэль'], { scores: { Азраэль: 12.5, Оверлорд: -3 } }));
+assert.equal(s1.scores, true);  // по этому флагу сайт понимает, что скрипт новый
+t.post(play('Ханаби', ['Оверлорд'], ['Оверлорд']));
+assert.deepEqual(t.get().log.map(e => e['Очки']), ['Оверлорд: -3, Азраэль: 12.5', '']);
+assert.equal(t.post({ ...play('Skull', ['Оверлорд', 'Азраэль'], [], { scores: { Оверлорд: 30, Азраэль: 7 } }), op: 'editLog', id: s1.id }).scores, true);
+assert.equal(t.get().log[0]['Очки'], 'Оверлорд: 30, Азраэль: 7');
+// переименование игрока меняет имя и в очках; при объединении дубль в партии убирается, как в «Игроках»
+t.post({ op: 'renamePlayer', from: 'азраэль', to: 'Азраэль Великий' });
+assert.equal(t.get().log[0]['Очки'], 'Оверлорд: 30, Азраэль Великий: 7');
+t.post({ op: 'renamePlayer', from: 'Азраэль Великий', to: 'Оверлорд' });
+assert.equal(t.get().log[0]['Очки'], 'Оверлорд: 30');
+
+// журнал, созданный до появления очков: столбец «Очки» дописывается в конец, старые строки не сдвигаются
+t = setup();
+const oldLog = t.ctx.SpreadsheetApp.getActive().insertSheet('Журнал');
+oldLog.v = [['ID', 'Дата', 'Игра', 'Игроки', 'Победители', 'Заметка'], ['old1', '09.11.2026', 'Ханаби', 'Оверлорд', '', 'старая']];
+oldLog.f = oldLog.v.map(r => r.map(() => ''));
+t.post(play('Skull', ['Оверлорд'], ['Оверлорд'], { scores: { Оверлорд: 9 } }));
+assert.deepEqual(oldLog.v[0], ['ID', 'Дата', 'Игра', 'Игроки', 'Победители', 'Заметка', 'Очки']);
+data = t.get();
+assert.deepEqual(data.log.map(e => [e['Заметка'], e['Очки']]), [['старая', ''], ['', 'Оверлорд: 9']]);
+t.post({ ...play('Ханаби', ['Оверлорд'], [], { scores: { Оверлорд: 4 } }), op: 'editLog', id: 'old1' });
+assert.equal(t.get().log[0]['Очки'], 'Оверлорд: 4');
 
 // «=...» сохраняется как текст, а не формула
 t.post(play('=HACK()', ['=X']));

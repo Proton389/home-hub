@@ -90,7 +90,7 @@ main { padding: 28px clamp(16px, 4vw, 44px) 60px; max-width: 1320px; width: 100%
 .card-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
 .card-head h2 { font-size: 17px; }
 input, select { font: inherit; color: var(--text); background: var(--surface-2); border: 1px solid var(--border); border-radius: 10px; padding: 9px 11px; width: 100%; min-width: 0; }
-input:focus-visible, select:focus-visible, .btn:focus-visible, a:focus-visible, .chip:focus-visible, textarea:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+input:focus-visible, select:focus-visible, summary:focus-visible, .btn:focus-visible, a:focus-visible, .chip:focus-visible, textarea:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 input[type=checkbox] { width: auto; accent-color: var(--accent); }
 .btn { font: inherit; font-weight: 600; display: inline-flex; align-items: center; justify-content: center; gap: 7px; padding: 9px 14px; border-radius: 10px; border: 1px solid var(--border); background: var(--surface-2); color: var(--text); cursor: pointer; white-space: nowrap; text-decoration: none; }
 .btn:hover:not(:disabled) { border-color: var(--accent); }
@@ -267,6 +267,10 @@ td input:not([type=number]) { min-width: 130px; }
 .log-note { font-size: 14px; margin-top: 2px; }
 .winner { display: inline-flex; align-items: center; gap: 3px; color: var(--text); font-weight: 600; }
 .winner svg { color: var(--warn); }
+.pts { color: var(--text); font-weight: 600; font-variant-numeric: tabular-nums; }
+#lf-pts summary { font-size: 13px; font-weight: 600; color: var(--muted); cursor: pointer; }
+#lf-pts .ratings { margin-top: 6px; }
+#log-form .score { width: 110px; padding: 7px 10px; text-align: right; }
 #log-more { margin-top: 8px; }
 .top { list-style: none; margin: 14px 0 0; padding: 0; display: grid; gap: 8px; }
 .top li { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(60px, 1fr) 30px 22px; align-items: center; gap: 10px; font-size: 14px; }
@@ -338,7 +342,7 @@ const typeLabel = t => TYPE_LABEL[t] ?? t;
 const PLAYS = { name: 'Название', count: 'Партий' };
 const PRE = { name: 'Название', date: 'ДД/ММ/ГГГГ' };
 const PL = { name: 'Игрок', games: 'Партий', wins: 'Побед' };
-const LOG = { id: 'ID', date: 'Дата', game: 'Игра', players: 'Игроки', winners: 'Победители', note: 'Заметка' };  // лист «Журнал»
+const LOG = { id: 'ID', date: 'Дата', game: 'Игра', players: 'Игроки', winners: 'Победители', note: 'Заметка', scores: 'Очки' };  // лист «Журнал»
 const RATE = { game: 'Игра', player: 'Игрок', value: 'Оценка' };  // лист «Оценки»
 
 const svg = (p, s = 16) => `<svg viewBox="0 0 24 24" width="${s}" height="${s}" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${p}</svg>`;
@@ -510,6 +514,12 @@ function render() {
 /* ---------- Журнал партий и оценки ---------- */
 
 const splitNames = s => String(s ?? '').split(',').map(x => x.trim()).filter(Boolean);
+// Очки в журнале — «Мэри: 120, Инна: 95» (так же пишет и разбирает скрипт). «Мэри: 120» → ['Мэри', ': 120']
+const scorePart = x => { const m = x.match(/^(.*):\s*(-?\d+(?:\.\d+)?)$/); return m ? [m[1], ': ' + m[2]] : [x, '']; };
+const parseScores = s => new Map(splitNames(s).map(scorePart).filter(p => p[1]).map(([n, v]) => [norm(n), v.slice(2)]));
+const scoreText = (players, scores) => players.filter(n => Object.hasOwn(scores, n)).map(n => `${n}: ${scores[n]}`).join(', ');
+const lostScores = (res, scores) => res && Object.keys(scores).length && !res.scores &&
+  toast('Очки не сохранились: скрипт в таблице устарел — вставьте новый apps-script.gs и разверните «Новую версию»', true);
 const fmtDate = d => d ? `${pad(d.getDate())}.${pad(d.getMonth() + 1)}.${d.getFullYear()}` : '';
 
 // Всё считается из журнала: партии игр, партии и победы игроков, когда играли последний раз.
@@ -556,6 +566,9 @@ function showLogForm(gameName = '', entry = null) {  // entry — запись �
   const game = db.games.find(g => norm(g[COL.name]) === norm(entry ? entry[LOG.game] : gameName));
   const names = allPlayers().map(p => p.name);
   for (const n of sel) if (!names.some(x => norm(x) === norm(n))) names.push(n);
+  const old = parseScores(entry?.[LOG.scores]), pts = new Map([...sel].filter(n => old.has(norm(n))).map(n => [n, old.get(norm(n))]));
+  // блок очков раскрыт сам, если очки уже есть или в эту игру их раньше записывали; в играх на победу/поражение он свёрнут
+  const hasScores = name => db.log.some(e => norm(e[LOG.game]) === norm(name) && String(e[LOG.scores] ?? '').trim());
   d.innerHTML = `<form class="dialog-body" id="log-form" novalidate>
     <div class="game-top"><h3 class="info-title">${entry ? 'Изменить партию' : 'Записать партию'}</h3><button type="button" class="btn icon ghost" id="close" aria-label="Закрыть">✕</button></div>
     <label class="field"><span>Игра</span><input name="game" list="log-games" autocomplete="off" placeholder="Начните вводить название" value="${esc(game ? String(game[COL.name]).trim() : entry ? String(entry[LOG.game]).trim() : '')}"></label>
@@ -564,6 +577,8 @@ function showLogForm(gameName = '', entry = null) {  // entry — запись �
     <div class="field"><span>Кто играл</span><div class="chips" id="lf-players"></div>
       <div class="add-row"><input id="lf-new" placeholder="Новый игрок" aria-label="Имя нового игрока"><button type="button" class="btn sm" id="lf-add">Добавить</button></div></div>
     <div class="field"><span>Победители</span><div class="chips" id="lf-winners"></div><div class="muted hint">Никого не отметили — значит, победила игра.</div></div>
+    <details id="lf-pts"${pts.size ? ' open' : ''}><summary>Очки</summary><div class="ratings" id="lf-scores"></div>
+      <div class="muted hint">Необязательно. В играх, где есть только победа или поражение, оставьте пустым.</div></details>
     <label class="field"><span>Заметка</span><input name="note" maxlength="300" placeholder="Необязательно" value="${esc(entry ? entry[LOG.note] ?? '' : '')}"></label>
     <div class="form-error" id="lf-error" role="alert"></div>
     <div class="dialog-actions"><button type="button" class="btn ghost" id="lf-cancel">Отмена</button><button class="btn primary">${entry ? 'Сохранить' : 'Записать'}</button></div>
@@ -572,11 +587,16 @@ function showLogForm(gameName = '', entry = null) {  // entry — запись �
   const chips = () => {
     $('#lf-players').innerHTML = names.map(n => `<button type="button" class="chip" data-p="${esc(n)}" aria-pressed="${sel.has(n)}">${esc(n)}</button>`).join('') || '<span class="muted">Добавьте игроков ниже</span>';
     $('#lf-winners').innerHTML = [...sel].map(n => `<button type="button" class="chip" data-w="${esc(n)}" aria-pressed="${win.has(n)}">${ICON.trophy} ${esc(n)}</button>`).join('') || '<span class="muted">Сначала отметьте, кто играл</span>';
+    $('#lf-scores').innerHTML = [...sel].map(n => `<label class="rate-row"><span>${esc(n)}</span><input type="number" step="any" class="score" data-s="${esc(n)}" value="${esc(pts.get(n) ?? '')}" aria-label="Очки: ${esc(n)}"></label>`).join('') || '<span class="muted">Сначала отметьте, кто играл</span>';
   };
   chips();
+  const openScores = () => { if (hasScores(f.elements.game.value)) $('#lf-pts').open = true; };
+  openScores();
+  f.elements.game.onchange = openScores;
+  f.oninput = e => { const s = e.target.dataset.s; if (s != null) pts.set(s, e.target.value); };
   f.onclick = e => {
     const p = e.target.closest('[data-p]')?.dataset.p, w = e.target.closest('[data-w]')?.dataset.w;
-    if (p != null) { if (sel.has(p)) { sel.delete(p); win.delete(p); } else sel.add(p); chips(); }
+    if (p != null) { if (sel.has(p)) { sel.delete(p); win.delete(p); pts.delete(p); } else sel.add(p); chips(); }
     if (w != null) { win.has(w) ? win.delete(w) : win.add(w); chips(); }
   };
   $('#lf-add').onclick = () => {
@@ -597,8 +617,13 @@ function showLogForm(gameName = '', entry = null) {  // entry — запись �
     if (!g && !keepOld) return err(f.elements.game.value.trim() ? 'Такой игры нет в коллекции — выберите из списка' : 'Выберите игру');
     if (!parseDate(f.elements.date.value)) return err('Укажите дату');
     if (!sel.size) return err('Отметьте, кто играл');
+    const scores = Object.fromEntries([...pts].filter(([n, v]) => sel.has(n) && v !== '').map(([n, v]) => [n, Number(v)]));
+    if ([...f.querySelectorAll('[data-s]')].some(i => i.validity.badInput) || Object.values(scores).some(v => !(Math.abs(v) < 1e9))) {
+      $('#lf-pts').open = true;
+      return err('Очки — только числа');
+    }
     d.close();
-    const args = [g ? String(g[COL.name]).trim() : String(entry[LOG.game]).trim(), fromISO(f.elements.date.value), [...sel], [...win], f.elements.note.value.trim()];
+    const args = [g ? String(g[COL.name]).trim() : String(entry[LOG.game]).trim(), fromISO(f.elements.date.value), [...sel], [...win], f.elements.note.value.trim(), scores];
     entry ? editPlay(entry, ...args) : recordPlay(...args);
   };
   $('#close').onclick = $('#lf-cancel').onclick = () => d.close();
@@ -606,22 +631,25 @@ function showLogForm(gameName = '', entry = null) {  // entry — запись �
   if (!d.open) d.showModal();
 }
 
-async function recordPlay(game, date, players, winners, note) {
-  const entry = { [LOG.id]: '', [LOG.date]: date, [LOG.game]: game, [LOG.players]: players.join(', '), [LOG.winners]: winners.join(', '), [LOG.note]: note };
+async function recordPlay(game, date, players, winners, note, scores) {
+  const entry = { [LOG.id]: '', [LOG.date]: date, [LOG.game]: game, [LOG.players]: players.join(', '), [LOG.winners]: winners.join(', '), [LOG.note]: note, [LOG.scores]: scoreText(players, scores) };
   db.log.push(entry);
   for (const n of players) if (!db.players.some(p => norm(p[PL.name]) === norm(n))) db.players.push({ [PL.name]: n, [PL.games]: 0, [PL.wins]: 0 });
   render();
-  const res = await send(() => ({ op: 'log', date, game, players, winners, note }), `Записано: ${game}`);
+  const res = await send(() => ({ op: 'log', date, game, players, winners, note, scores }), `Записано: ${game}`);
   if (res) entry[LOG.id] = res.id;
   else { db.log.splice(db.log.indexOf(entry), 1); render(); }  // не сохранилось — не показываем то, чего нет в таблице
+  if (lostScores(res, scores)) { entry[LOG.scores] = ''; render(); }
 }
 
-async function editPlay(entry, game, date, players, winners, note) {
+async function editPlay(entry, game, date, players, winners, note, scores) {
   const before = { ...entry };
-  Object.assign(entry, { [LOG.date]: date, [LOG.game]: game, [LOG.players]: players.join(', '), [LOG.winners]: winners.join(', '), [LOG.note]: note });
+  Object.assign(entry, { [LOG.date]: date, [LOG.game]: game, [LOG.players]: players.join(', '), [LOG.winners]: winners.join(', '), [LOG.note]: note, [LOG.scores]: scoreText(players, scores) });
   for (const n of players) if (!db.players.some(p => norm(p[PL.name]) === norm(n))) db.players.push({ [PL.name]: n, [PL.games]: 0, [PL.wins]: 0 });
   render();
-  if (!await send(() => ({ op: 'editLog', id: entry[LOG.id], date, game, players, winners, note }), `Исправлено: ${game}`)) { Object.assign(entry, before); render(); }
+  const res = await send(() => ({ op: 'editLog', id: entry[LOG.id], date, game, players, winners, note, scores }), `Исправлено: ${game}`);
+  if (!res) { Object.assign(entry, before); render(); }
+  else if (lostScores(res, scores)) { entry[LOG.scores] = before[LOG.scores] ?? ''; render(); }
 }
 
 async function deletePlay(entry) {
@@ -1013,8 +1041,9 @@ function renderLog() {
   const entries = db.log.map((e, i) => ({ e, i, d: parseDate(e[LOG.date]) })).sort((a, b) => (b.d ?? 0) - (a.d ?? 0) || b.i - a.i);
   const shown = statsUI.log ? entries : entries.slice(0, 10);
   box.innerHTML = entries.length ? `<ul class="log">${shown.map(({ e, i }) => {
-      const won = new Set(splitNames(e[LOG.winners]).map(norm));
-      const who = splitNames(e[LOG.players]).map(n => won.has(norm(n)) ? `<span class="winner" title="Победитель">${ICON.trophy}${esc(n)}</span>` : esc(n)).join(', ');
+      const won = new Set(splitNames(e[LOG.winners]).map(norm)), pts = parseScores(e[LOG.scores]);
+      const who = splitNames(e[LOG.players]).map(n => (won.has(norm(n)) ? `<span class="winner" title="Победитель">${ICON.trophy}${esc(n)}</span>` : esc(n)) +
+        (pts.has(norm(n)) ? ` <span class="pts" title="Очки">${esc(pts.get(norm(n)))}</span>` : '')).join(', ');
       return `<li><div class="log-date">${esc(e[LOG.date])}</div>
         <div><div class="log-game">${esc(e[LOG.game])}</div><div class="muted">${who}${won.size ? '' : ' · победила игра'}</div>${String(e[LOG.note] ?? '').trim() ? `<div class="log-note">${esc(e[LOG.note])}</div>` : ''}</div>
         <div class="actions"><button class="btn icon ghost sm" data-edit-log="${i}" title="Изменить запись" aria-label="Изменить запись">${ICON.edit}</button><button class="btn icon ghost sm" data-unlog="${i}" title="Удалить запись" aria-label="Удалить запись">${ICON.trash}</button></div></li>`;
@@ -1118,9 +1147,10 @@ async function renamePlayer(from, to) {
   const same = norm(from) === norm(to), merge = !same && db.players.some(p => norm(p[PL.name]) === norm(to));
   const i = db.players.findIndex(p => norm(p[PL.name]) === norm(from));
   if (i >= 0) merge ? db.players.splice(i, 1) : (db.players[i][PL.name] = to);
-  for (const e of db.log) for (const k of [LOG.players, LOG.winners]) {
+  for (const e of db.log) for (const k of [LOG.players, LOG.winners, LOG.scores]) {
     const seen = new Set();
-    e[k] = splitNames(e[k]).map(n => norm(n) === norm(from) ? to : n).filter(n => !seen.has(norm(n)) && seen.add(norm(n))).join(', ');
+    e[k] = splitNames(e[k]).map(x => k === LOG.scores ? scorePart(x) : [x, '']).map(([n, s]) => [norm(n) === norm(from) ? to : n, s])
+      .filter(([n]) => !seen.has(norm(n)) && seen.add(norm(n))).map(([n, s]) => n + s).join(', ');
   }
   const rated = new Set(db.ratings.filter(r => norm(r[RATE.player]) === norm(to)).map(r => norm(r[RATE.game])));
   db.ratings = db.ratings.filter(r => same || norm(r[RATE.player]) !== norm(from) || !rated.has(norm(r[RATE.game])));
@@ -1349,7 +1379,7 @@ function startTour() {
 
 /* ---------- Пульт ТВ и клавиатура: стрелки переводят выделение на ближайший элемент в эту сторону ---------- */
 
-const FOCUSABLE = 'a[href], button:not([disabled]), input:not([type=hidden]):not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+const FOCUSABLE = 'a[href], summary, button:not([disabled]), input:not([type=hidden]):not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 function moveFocus(dx, dy) {
   const scope = [...document.querySelectorAll('dialog[open]')].pop() || document;  // в открытом окне — только внутри него
   const cur = scope.contains(document.activeElement) && document.activeElement !== document.body ? document.activeElement : null;
