@@ -517,7 +517,7 @@ const splitNames = s => String(s ?? '').split(',').map(x => x.trim()).filter(Boo
 // Очки в журнале — «Мэри: 120, Инна: 95» (так же пишет и разбирает скрипт). «Мэри: 120» → ['Мэри', ': 120']
 const scorePart = x => { const m = x.match(/^(.*):\s*(-?\d+(?:\.\d+)?)$/); return m ? [m[1], ': ' + m[2]] : [x, '']; };
 const parseScores = s => new Map(splitNames(s).map(scorePart).filter(p => p[1]).map(([n, v]) => [norm(n), v.slice(2)]));
-const scoreText = (players, scores) => players.filter(n => Object.hasOwn(scores, n)).map(n => `${n}: ${scores[n]}`).join(', ');
+const scoreText = (players, scores) => players.filter(n => Object.prototype.hasOwnProperty.call(scores, n)).map(n => `${n}: ${scores[n]}`).join(', ');
 const lostScores = (res, scores) => res && Object.keys(scores).length && !res.scores &&
   toast('Очки не сохранились: скрипт в таблице устарел — вставьте новый apps-script.gs и разверните «Новую версию»', true);
 const fmtDate = d => d ? `${pad(d.getDate())}.${pad(d.getMonth() + 1)}.${d.getFullYear()}` : '';
