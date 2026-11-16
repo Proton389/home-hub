@@ -343,7 +343,7 @@ html.tv .collapse { width: 34px; height: 34px; right: -17px; }
 const API = 'https://script.google.com/macros/s/AKfycbw2fj5R4qPbx6eQ1jQoq0rtN3sbnRUDEmLnlLrDSazVF2KhZX8EnZxORVCDcdZ2oHXe/exec';
 // Посредник для тех, у кого Google недоступен (yandex-relay.js, README → «Доступ из России»). Пусто — не используется.
 // Если таблица не загрузилась напрямую за 10 секунд, устройство переходит на посредника и запоминает это.
-const RELAY = '', RELAY_KEY = 'hub-relay';
+const RELAY = 'https://functions.yandexcloud.net/d4efiaskue74v17sambf', RELAY_KEY = 'hub-relay';
 let useRelay = (() => { try { return !!RELAY && localStorage.getItem(RELAY_KEY) === '1'; } catch { return false; } })();
 const apiUrl = () => useRelay ? RELAY : API;
 
