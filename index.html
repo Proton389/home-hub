@@ -221,7 +221,10 @@ td input:not([type=number]) { min-width: 130px; }
 .when { font-size: 13px; font-weight: 600; color: var(--muted); }
 .when.soon { color: var(--t0); }
 .when.late { color: var(--warn); }
+#f-more { display: none; height: 42px; }
 @media (max-width: 640px) {
+  #f-more { display: inline-flex; flex: 1 0 auto; }  /* фильтры занимали весь экран телефона — сворачиваем их под кнопку */
+  .filters:not(.open) .opt { display: none; }
   .pre-row { grid-template-columns: minmax(0, 1fr) 36px; }
   .pre-row .pre-date { grid-column: 1; }
   .pre-row .when { grid-column: 1; padding: 0 12px 6px; }
@@ -287,6 +290,9 @@ td input:not([type=number]) { min-width: 130px; }
 .top-bar i { display: block; height: 100%; border-radius: 4px; background: var(--pie-1); }
 .top li .muted { text-align: right; font-size: 12px; }
 td.pname { font-weight: 600; padding-left: 12px; }
+.tiles.profile { margin-bottom: 0; }
+.tiles.profile .tile { padding: 12px 14px; }
+.stars-text { color: var(--warn); letter-spacing: 1px; }
 @media (max-width: 520px) {
   .log li { grid-template-columns: minmax(0, 1fr) auto; gap: 4px 12px; }
   .log-date { grid-column: 1 / -1; padding: 0; }
@@ -786,7 +792,7 @@ document.addEventListener('click', e => {
 
 /* ---------- Подбор ---------- */
 
-const F = { q: '', players: '', time: '', types: [], kinds: [], sort: 'name' };
+const F = { q: '', players: '', time: '', types: [], kinds: [], sort: 'name', open: false };
 const kindsOf = g => splitNames(g[COL.kind]);
 const allKinds = () => [...new Set(db.games.flatMap(kindsOf))].sort(byName);  // кнопки фильтра — из того, что записано в таблице
 const SORTS = {
@@ -801,7 +807,7 @@ const SORTS = {
 function filtered() {
   const q = norm(F.q), n = num(F.players), t = num(F.time);
   return db.games.filter(g =>
-    (!q || norm(g[COL.name]).includes(q) || norm(g[COL.place]).includes(q)) &&
+    (!q || [COL.name, COL.place, COL.desc].some(c => norm(g[c]).includes(q))) &&
     (!n || (num(g[COL.min]) <= n && n <= num(g[COL.max]))) &&
     (!t || num(g[COL.time]) <= t) &&
     (!F.types.length || F.types.some(k => num(g[k]) === 1)) &&
@@ -809,10 +815,12 @@ function filtered() {
   ).sort(SORTS[F.sort][1]);
 }
 
-// Обложка из столбца COL.cover: ссылка на файл Google Диска (превращается в картинку) или прямая ссылка на изображение.
+// Обложка из столбца COL.cover: файл сайта «covers/….jpg» (для карточек — уменьшенная копия из covers/s/),
+// ссылка на файл Google Диска (превращается в картинку) или прямая ссылка на изображение.
 function coverImg(g, size, cls, alt) {
   const url = String(g[COL.cover] ?? '').trim(), id = driveId(url);
-  const src = id ? `https://drive.google.com/thumbnail?id=${id}&sz=w${size}` : /^https?:\/\//i.test(url) ? url : '';
+  const src = /^covers\/[\w.-]+\.jpg$/.test(url) ? (size <= 300 ? url.replace('covers/', 'covers/s/') : url)
+    : id ? `https://drive.google.com/thumbnail?id=${id}&sz=w${size}` : /^https?:\/\//i.test(url) ? url : '';
   return src ? `<img class="${cls}" src="${esc(src)}" alt="${esc(alt)}" loading="lazy" referrerpolicy="no-referrer" onerror="this.remove()">` : '';
 }
 
@@ -922,14 +930,15 @@ document.addEventListener('click', e => {
 function renderPicker(el) {
   const times = ['', 20, 30, 45, 60, 90, 120, 180, 240];
   el.innerHTML = `
-    <div class="card filters">
-      <label class="field wide"><span>Поиск</span><input id="f-q" type="search" placeholder="Название или место, например «шкаф F»" value="${esc(F.q)}"></label>
-      <div class="field"><span>Сколько игроков</span>
+    <div class="card filters${F.open ? ' open' : ''}">
+      <label class="field wide"><span>Поиск</span><input id="f-q" type="search" placeholder="Название, место или слово из описания" value="${esc(F.q)}"></label>
+      <button class="btn" id="f-more" aria-expanded="${F.open}"></button>
+      <div class="field opt"><span>Сколько игроков</span>
         <div class="stepper"><button class="btn icon" data-step="-1" aria-label="Меньше игроков">−</button><input id="f-players" type="number" min="1" inputmode="numeric" placeholder="любое" aria-label="Сколько игроков" value="${esc(F.players)}"><button class="btn icon" data-step="1" aria-label="Больше игроков">+</button></div></div>
-      <label class="field"><span>Время партии</span><select id="f-time">${times.map(v => `<option value="${v}" ${String(v) === F.time ? 'selected' : ''}>${v ? `до ${v} мин` : 'любое'}</option>`).join('')}</select></label>
-      <div class="field fit"><span>Режим</span><div class="chips">${COL.types.map((t, i) => `<button class="chip t${i}" data-type="${esc(t)}" aria-pressed="${F.types.includes(t)}">${esc(typeLabel(t))}</button>`).join('')}</div></div>
-      ${allKinds().length ? `<div class="field kinds"><span>Тип</span><div class="chips">${allKinds().map(k => `<button class="chip" data-kind="${esc(k)}" aria-pressed="${F.kinds.includes(k)}">${esc(k)}</button>`).join('')}</div></div>` : ''}
-      <label class="field"><span>Сортировка</span><select id="f-sort">${Object.entries(SORTS).map(([k, [title]]) => `<option value="${k}" ${k === F.sort ? 'selected' : ''}>${title}</option>`).join('')}</select></label>
+      <label class="field opt"><span>Время партии</span><select id="f-time">${times.map(v => `<option value="${v}" ${String(v) === F.time ? 'selected' : ''}>${v ? `до ${v} мин` : 'любое'}</option>`).join('')}</select></label>
+      <div class="field fit opt"><span>Режим</span><div class="chips">${COL.types.map((t, i) => `<button class="chip t${i}" data-type="${esc(t)}" aria-pressed="${F.types.includes(t)}">${esc(typeLabel(t))}</button>`).join('')}</div></div>
+      ${allKinds().length ? `<div class="field kinds opt"><span>Тип</span><div class="chips">${allKinds().map(k => `<button class="chip" data-kind="${esc(k)}" aria-pressed="${F.kinds.includes(k)}">${esc(k)}</button>`).join('')}</div></div>` : ''}
+      <label class="field opt"><span>Сортировка</span><select id="f-sort">${Object.entries(SORTS).map(([k, [title]]) => `<option value="${k}" ${k === F.sort ? 'selected' : ''}>${title}</option>`).join('')}</select></label>
       <button class="btn primary" id="random">${ICON.dice} Случайная игра</button>
     </div>
     <div class="meta"><span id="count"></span><span class="spacer"></span>
@@ -939,9 +948,16 @@ function renderPicker(el) {
     <div class="grid" id="results"></div>`;
 
   const showResults = () => {
-    const list = filtered();
+    const list = filtered(), set = [F.players, F.time, ...F.types, ...F.kinds].filter(Boolean).length + (F.sort !== 'name');
+    $('#f-more').textContent = `${F.open ? 'Скрыть фильтры' : 'Фильтры'}${set ? ` · ${set}` : ''}`;
     $('#count').textContent = `Подходит ${list.length} из ${db.games.length}`;
     $('#results').innerHTML = list.map(gameCard).join('') || '<div class="empty">Ничего не нашлось — ослабьте фильтры</div>';
+  };
+  $('#f-more').onclick = e => {  // на телефоне фильтры свёрнуты под эту кнопку; на широком экране её нет
+    F.open = !F.open;
+    el.querySelector('.filters').classList.toggle('open', F.open);
+    e.currentTarget.setAttribute('aria-expanded', F.open);
+    showResults();
   };
   $('#f-q').oninput = e => { F.q = e.target.value; showResults(); };
   $('#f-players').oninput = e => { F.players = e.target.value; showResults(); };
@@ -1134,12 +1150,14 @@ function renderPlayers() {
     <tbody>${rows.map(p => {
       const rate = p.plays ? Math.round(p.wins / p.plays * 100) : null, i = db.players.findIndex(x => norm(x[PL.name]) === norm(p.name));
       const del = p.plays || i < 0 ? 'disabled title="У игрока есть партии в журнале — удалить нельзя"' : `data-del="${i}" title="Удалить игрока"`;
-      return `<tr><td class="pname">${esc(p.name)}<button class="btn icon ghost sm rename" data-rename="${esc(p.name)}" title="Переименовать" aria-label="Переименовать ${esc(p.name)}">${ICON.edit}</button></td><td>${p.plays}</td><td>${p.wins}</td>
+      return `<tr><td class="pname"><button class="game-title" data-profile="${esc(p.name)}" title="Профиль игрока">${esc(p.name)}</button><button class="btn icon ghost sm rename" data-rename="${esc(p.name)}" title="Переименовать" aria-label="Переименовать ${esc(p.name)}">${ICON.edit}</button></td><td>${p.plays}</td><td>${p.wins}</td>
         <td><div class="rate"><i><b style="width:${rate ?? 0}%"></b></i>${rate == null ? '—' : rate + '%'}</div></td>
         <td class="muted">${esc(fav.get(norm(p.name))?.game ?? '—')}</td>
         <td><div class="actions"><button class="btn icon ghost sm" ${del} aria-label="Удалить игрока">${ICON.trash}</button></div></td></tr>`;
     }).join('')}</tbody></table></div>` : '<div class="empty">Игроков пока нет</div>';
   box.onclick = e => {
+    const pf = e.target.closest('[data-profile]');
+    if (pf) return showPlayer(pf.dataset.profile);
     const rn = e.target.closest('[data-rename]');
     if (rn) return renamePlayerForm(rn.dataset.rename);
     const b = e.target.closest('[data-del]'), p = b && db.players[b.dataset.del];
@@ -1148,6 +1166,40 @@ function renderPlayers() {
     save('players', 'Игрок удалён');
     render();
   };
+}
+
+// Профиль игрока — всё из журнала и оценок: партии и победы, по типам игр, частые игры, лучшие оценки, последние партии
+function showPlayer(name) {
+  const k = norm(name), mine = db.log.filter(e => splitNames(e[LOG.players]).some(n => norm(n) === k));
+  const won = e => splitNames(e[LOG.winners]).some(n => norm(n) === k), pct = (w, n) => n ? Math.round(w / n * 100) + '%' : '—';
+  const kinds = new Map(), games = new Map(), add = (map, key, w) => { const x = map.get(key) ?? map.set(key, { name: key, n: 0, w: 0 }).get(key); x.n++; x.w += w; };
+  for (const e of mine) {
+    const gn = String(e[LOG.game]).trim(), g = db.games.find(x => norm(x[COL.name]) === norm(gn));
+    add(games, gn, won(e));
+    if (g) kindsOf(g).forEach(t => add(kinds, t, won(e)));
+  }
+  const wins = mine.filter(won).length, last = mine.map(e => parseDate(e[LOG.date])).filter(Boolean).sort((a, b) => b - a)[0];
+  const rows = map => [...map.values()].sort((a, b) => b.n - a.n || byName(a.name, b.name));
+  const table = (head, list) => `<div class="table-wrap"><table><thead><tr>${head.map(h => `<th>${h}</th>`).join('')}</tr></thead><tbody>${list.map(x =>
+    `<tr><td>${esc(x.name)}</td><td>${x.n}</td><td>${x.w}</td><td>${pct(x.w, x.n)}</td></tr>`).join('')}</tbody></table></div>`;
+  const rated = db.ratings.filter(r => norm(r[RATE.player]) === k && num(r[RATE.value]) && playedBy(r[RATE.game], name))
+    .sort((a, b) => num(b[RATE.value]) - num(a[RATE.value]) || byName(a[RATE.game], b[RATE.game])).slice(0, 5);
+  const recent = mine.map((e, i) => ({ e, i, d: parseDate(e[LOG.date]) })).sort((a, b) => (b.d ?? 0) - (a.d ?? 0) || b.i - a.i).slice(0, 5);
+  const d = $('#dialog');
+  d.innerHTML = `<div class="dialog-body">
+    <div class="game-top"><h3 class="info-title">${esc(name)}</h3><button class="btn icon ghost" id="close" aria-label="Закрыть">✕</button></div>
+    <div class="tiles profile">${tile(mine.length, plural(mine.length, 'партия', 'партии', 'партий'))}${tile(wins, plural(wins, 'победа', 'победы', 'побед'))}${tile(pct(wins, mine.length), 'доля побед')}${tile(last ? fmtDate(last) : '—', 'последняя партия', 'text')}</div>
+    ${mine.length ? `
+    ${kinds.size ? `<div class="field"><span>По типам игр</span>${table(['Тип', 'Партий', 'Побед', '%'], rows(kinds))}</div>` : ''}
+    <div class="field"><span>Чаще всего играет</span>${table(['Игра', 'Партий', 'Побед', '%'], rows(games).slice(0, 5))}</div>
+    <div class="field"><span>Лучшие оценки</span>${rated.length ? `<div class="ratings">${rated.map(r => `<div class="rate-row"><span>${esc(String(r[RATE.game]).trim())}</span><span class="stars-text">${'★'.repeat(num(r[RATE.value]))}</span></div>`).join('')}</div>` : '<div class="muted">Оценок пока нет</div>'}</div>
+    <div class="field"><span>Последние партии</span><ul class="log">${recent.map(({ e }) => { const s = parseScores(e[LOG.scores]).get(k);
+      return `<li><div class="log-date">${esc(e[LOG.date])}</div><div><div class="log-game">${esc(e[LOG.game])}</div><div class="muted">${won(e) ? `<span class="winner">${ICON.trophy}победа</span>` : 'без победы'}${s != null ? ` · очки <span class="pts">${esc(s)}</span>` : ''}</div></div></li>`; }).join('')}</ul></div>`
+    : '<div class="empty">Пока ни одной партии в журнале</div>'}
+  </div>`;
+  $('#close').onclick = () => d.close();
+  d.onclick = e => { if (e.target === d) d.close(); };
+  if (!d.open) d.showModal();
 }
 
 async function renamePlayerForm(from) {
