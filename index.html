@@ -104,6 +104,8 @@ input[type=checkbox] { width: auto; accent-color: var(--accent); }
 .empty { padding: 40px 16px; text-align: center; color: var(--muted); }
 .check { display: inline-flex; align-items: center; gap: 7px; color: var(--muted); font-size: 14px; cursor: pointer; }
 .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-bottom: 18px; }
+.stats-len { margin-bottom: 14px; }
+.stats-len .chip { --c: var(--accent); }
 .tile .v { font-size: 28px; font-weight: 700; line-height: 1.1; overflow-wrap: anywhere; }
 .tile.text .v { font-size: 20px; }
 .tile .l { margin-top: 4px; color: var(--muted); font-size: 13px; }
@@ -529,10 +531,10 @@ const fmtDate = d => d ? `${pad(d.getDate())}.${pad(d.getMonth() + 1)}.${d.getFu
 // Всё считается из журнала: партии игр, партии и победы игроков, когда играли последний раз.
 // Оценки — средние по игрокам, причём учитываются только оценки тех, кто играл в эту игру.
 let S = { games: new Map(), players: new Map(), played: new Map() }, R = new Map();
-function computeStats() {
+function tally(log) {  // партии игр, партии и победы игроков по записям журнала
   const games = new Map(), players = new Map(), played = new Map();  // played: игра → кто в неё играл
   const player = n => players.get(norm(n)) ?? players.set(norm(n), { name: n, plays: 0, wins: 0 }).get(norm(n));
-  for (const e of db.log) {
+  for (const e of log) {
     const k = norm(e[LOG.game]), d = parseDate(e[LOG.date]);
     const g = games.get(k) ?? games.set(k, { name: String(e[LOG.game]).trim(), n: 0, last: null }).get(k);
     g.n++;
@@ -542,7 +544,10 @@ function computeStats() {
     splitNames(e[LOG.winners]).forEach(n => player(n).wins++);
   }
   for (const p of db.players) if (String(p[PL.name] ?? '').trim()) player(String(p[PL.name]).trim());  // игроки без партий тоже в списке
-  S = { games, players, played };
+  return { games, players, played };
+}
+function computeStats() {
+  S = tally(db.log);
   R = new Map();
   for (const r of db.ratings) {
     const v = num(r[RATE.value]);
@@ -557,11 +562,21 @@ const lastPlayed = name => S.games.get(norm(name))?.last ?? null;
 const ratingOf = name => { const r = R.get(norm(name)); return r ? { avg: r.sum / r.count, count: r.count, by: r.by } : null; };
 const allPlayers = () => [...S.players.values()].sort((a, b) => byName(a.name, b.name));
 
-function playsList() {  // все игры коллекции + игры из журнала, которых уже нет на Лист1
+function playsList(T = S) {  // все игры коллекции + игры из журнала, которых уже нет на Лист1
   const known = new Set(db.games.map(g => norm(g[COL.name])));
-  const list = db.games.map(g => ({ name: g[COL.name], n: playsOf(g[COL.name]) }));
-  for (const [k, g] of S.games) if (!known.has(k)) list.push({ name: g.name, n: g.n });
+  const list = db.games.map(g => ({ name: g[COL.name], n: T.games.get(norm(g[COL.name]))?.n ?? 0 }));
+  for (const [k, g] of T.games) if (!known.has(k)) list.push({ name: g.name, n: g.n });
   return list;
+}
+
+// Статистика по длительности игры (столбец «Время»): «до 60 мин» — 60 и меньше, «свыше 60 мин» — больше.
+// Игры без времени и удалённые из коллекции видны только во «Всех».
+const LENGTHS = [['', 'Все'], ['short', 'До 60 мин'], ['long', 'Свыше 60 мин']];
+function statsView() {
+  const mins = new Map(db.games.map(g => [norm(g[COL.name]), num(g[COL.time])]));
+  const fit = name => { if (!statsUI.len) return true; const t = mins.get(norm(name)); return !!t && (statsUI.len === 'short' ? t <= 60 : t > 60); };
+  const log = db.log.filter(e => fit(e[LOG.game]));
+  return { fit, log, T: statsUI.len ? tally(log) : S };
 }
 
 function showLogForm(gameName = '', entry = null) {  // entry — запись журнала, которую исправляем
@@ -752,11 +767,11 @@ async function saveGame(g, fields, onSaved) {
   render();
 }
 
-function favourites() {  // игрок → игра с его самой высокой оценкой
+function favourites(fit = () => true) {  // игрок → игра с его самой высокой оценкой (среди игр, подходящих под fit)
   const best = new Map();
   for (const r of db.ratings) {
     const v = num(r[RATE.value]), k = norm(r[RATE.player]);
-    if (v && playedBy(r[RATE.game], r[RATE.player]) && v > (best.get(k)?.v ?? 0)) best.set(k, { v, game: String(r[RATE.game]).trim() });
+    if (v && fit(r[RATE.game]) && playedBy(r[RATE.game], r[RATE.player]) && v > (best.get(k)?.v ?? 0)) best.set(k, { v, game: String(r[RATE.game]).trim() });
   }
   return best;
 }
@@ -976,21 +991,23 @@ async function refreshGames(e) {
 
 /* ---------- Статистика ---------- */
 
-const statsUI = { q: '', all: false, log: false };
+const statsUI = { q: '', all: false, log: false, len: '' };
 
 function renderStats(el) {
-  const list = playsList(), players = allPlayers(), total = db.log.length;
+  const v = statsView(), list = playsList(v.T).filter(x => v.fit(x.name)), players = [...v.T.players.values()], total = v.log.length;
   el.innerHTML = `
+    <div class="chips stats-len" role="group" aria-label="Длительность игр">${LENGTHS.map(([id, title]) =>
+      `<button type="button" class="chip" data-len="${id}" aria-pressed="${statsUI.len === id}">${title}</button>`).join('')}</div>
     <div class="tiles">
       ${tile(total, plural(total, 'партия сыграна', 'партии сыграно', 'партий сыграно'))}
-      ${tile(list.filter(x => x.n > 0).length, 'разных игр сыграно')}
+      ${(n => tile(n, plural(n, 'игра сыграна', 'разные игры сыграны', 'разных игр сыграно')))(list.filter(x => x.n > 0).length)}
       ${tile(players.length, 'игроков')}
-      ${COL.types.map((t, i) => tile(db.games.filter(g => num(g[t]) === 1).length, `игр типа «${typeLabel(t)}»`, 't' + i)).join('')}
+      ${COL.types.map((t, i) => tile(db.games.filter(g => v.fit(g[COL.name]) && num(g[t]) === 1).length, `игр типа «${typeLabel(t)}»`, 't' + i)).join('')}
     </div>
     <div class="charts">
       ${pieCard('Победы игроков', players.map(p => ({ name: p.name, value: p.wins })), n => plural(n, 'победа', 'победы', 'побед'))}
       ${pieCard('Самые частые игры', list.map(x => ({ name: String(x.name).trim(), value: x.n })), n => plural(n, 'партия', 'партии', 'партий'))}
-      ${topRated()}
+      ${topRated(v)}
     </div>
     <div class="stack">
       <section class="card">
@@ -1011,13 +1028,14 @@ function renderStats(el) {
 
   const showPlays = () => {
     const q = norm(statsUI.q);
-    const rows = playsList().filter(x => (statsUI.all || q || x.n > 0) && norm(x.name).includes(q)).sort((a, b) => b.n - a.n || byName(a.name, b.name));
+    const rows = list.filter(x => (statsUI.all || q || x.n > 0) && norm(x.name).includes(q)).sort((a, b) => b.n - a.n || byName(a.name, b.name));
     const max = Math.max(1, ...rows.map(x => x.n));
     $('#plays-list').innerHTML = rows.map(x => `<div class="bar-row">
         <div><div>${esc(x.name)}</div><div class="bar" style="width:${x.n / max * 100}%"></div></div>
         <div class="counter"><b>${x.n}</b><button class="btn icon sm" data-play="${esc(String(x.name).trim())}" aria-label="Записать партию">+</button></div>
       </div>`).join('') || `<div class="empty">${q ? 'Такой игры нет' : 'Пока ни одной партии'}</div>`;
   };
+  el.querySelector('.stats-len').onclick = e => { const b = e.target.closest('[data-len]'); if (b) { statsUI.len = b.dataset.len; render(); } };
   $('#s-q').oninput = e => { statsUI.q = e.target.value; showPlays(); };
   $('#s-all').onchange = e => { statsUI.all = e.target.checked; showPlays(); };
   $('#add-player').onsubmit = e => {
@@ -1030,8 +1048,8 @@ function renderStats(el) {
     render();
   };
   showPlays();
-  renderLog();
-  renderPlayers();
+  renderLog(v);
+  renderPlayers(v);
   // наведение (или касание) на долю или строку легенды выделяет пару, остальное приглушается
   el.querySelectorAll('.chart').forEach(c => {
     const mark = i => c.querySelectorAll('[data-i]').forEach(x => { x.classList.toggle('dim', i != null && x.dataset.i !== i); x.classList.toggle('on', x.tagName === 'LI' && x.dataset.i === i); });
@@ -1040,9 +1058,9 @@ function renderStats(el) {
   });
 }
 
-function renderLog() {
+function renderLog(v) {
   const box = $('#log-list');
-  const entries = db.log.map((e, i) => ({ e, i, d: parseDate(e[LOG.date]) })).sort((a, b) => (b.d ?? 0) - (a.d ?? 0) || b.i - a.i);
+  const entries = db.log.map((e, i) => ({ e, i, d: parseDate(e[LOG.date]) })).filter(x => v.fit(x.e[LOG.game])).sort((a, b) => (b.d ?? 0) - (a.d ?? 0) || b.i - a.i);
   const shown = statsUI.log ? entries : entries.slice(0, 10);
   box.innerHTML = entries.length ? `<ul class="log">${shown.map(({ e, i }) => {
       const won = new Set(splitNames(e[LOG.winners]).map(norm)), pts = parseScores(e[LOG.scores]);
@@ -1052,18 +1070,18 @@ function renderLog() {
         <div><div class="log-game">${esc(e[LOG.game])}</div><div class="muted">${who}${won.size ? '' : ' · победила игра'}</div>${String(e[LOG.note] ?? '').trim() ? `<div class="log-note">${esc(e[LOG.note])}</div>` : ''}</div>
         <div class="actions"><button class="btn icon ghost sm" data-edit-log="${i}" title="Изменить запись" aria-label="Изменить запись">${ICON.edit}</button><button class="btn icon ghost sm" data-unlog="${i}" title="Удалить запись" aria-label="Удалить запись">${ICON.trash}</button></div></li>`;
     }).join('')}</ul>${entries.length > 10 ? `<button class="btn ghost sm" id="log-more">${statsUI.log ? 'Свернуть' : `Показать все (${entries.length})`}</button>` : ''}`
-    : '<div class="empty">Пока ни одной партии. Нажмите «Записать партию».</div>';
+    : `<div class="empty">${statsUI.len ? 'В играх этой длительности партий пока нет.' : 'Пока ни одной партии. Нажмите «Записать партию».'}</div>`;
   box.onclick = e => {
     const ed = e.target.closest('[data-edit-log]');
     if (ed) return showLogForm('', db.log[ed.dataset.editLog]);
     const b = e.target.closest('[data-unlog]');
     if (b) deletePlay(db.log[b.dataset.unlog]);
-    if (e.target.closest('#log-more')) { statsUI.log = !statsUI.log; renderLog(); }
+    if (e.target.closest('#log-more')) { statsUI.log = !statsUI.log; renderLog(v); }
   };
 }
 
-function topRated() {  // ранжированные полосы, один цвет: сравнить средние оценки точнее, чем долями
-  const rows = db.games.map(g => ({ name: String(g[COL.name]).trim(), r: ratingOf(g[COL.name]) })).filter(x => x.r)
+function topRated(v) {  // ранжированные полосы, один цвет: сравнить средние оценки точнее, чем долями
+  const rows = db.games.filter(g => v.fit(g[COL.name])).map(g => ({ name: String(g[COL.name]).trim(), r: ratingOf(g[COL.name]) })).filter(x => x.r)
     .sort((a, b) => b.r.avg - a.r.avg || b.r.count - a.r.count || byName(a.name, b.name)).slice(0, 8);
   return `<section class="card chart"><h2>Лучшие по оценкам</h2><div class="muted">средняя оценка игроков, из 5</div>
     ${rows.length ? `<ul class="top">${rows.map(x => `<li><span title="${esc(x.name)}">${esc(x.name)}</span><span class="top-bar"><i style="width:${x.r.avg / 5 * 100}%"></i></span><b>${x.r.avg.toFixed(1)}</b><span class="muted" title="Оценок">${x.r.count}</span></li>`).join('')}</ul>`
@@ -1093,14 +1111,14 @@ function pieCard(title, items, unit) {
     <ul class="legend">${legend.join('')}</ul></div></section>`;
 }
 
-function renderPlayers() {
-  const box = $('#players'), fav = favourites();
-  const rows = allPlayers().sort((a, b) => b.wins - a.wins || b.plays - a.plays || byName(a.name, b.name));
+function renderPlayers(v) {
+  const box = $('#players'), fav = favourites(v.fit);
+  const rows = [...v.T.players.values()].sort((a, b) => b.wins - a.wins || b.plays - a.plays || byName(a.name, b.name));
   box.innerHTML = rows.length ? `<div class="table-wrap"><table>
     <thead><tr><th>${esc(PL.name)}</th><th>${esc(PL.games)}</th><th>${esc(PL.wins)}</th><th>% побед</th><th>Любимая игра</th><th></th></tr></thead>
     <tbody>${rows.map(p => {
       const rate = p.plays ? Math.round(p.wins / p.plays * 100) : null, i = db.players.findIndex(x => norm(x[PL.name]) === norm(p.name));
-      const del = p.plays || i < 0 ? 'disabled title="У игрока есть партии в журнале — удалить нельзя"' : `data-del="${i}" title="Удалить игрока"`;
+      const del = S.players.get(norm(p.name))?.plays || i < 0 ? 'disabled title="У игрока есть партии в журнале — удалить нельзя"' : `data-del="${i}" title="Удалить игрока"`;
       return `<tr><td class="pname">${esc(p.name)}<button class="btn icon ghost sm rename" data-rename="${esc(p.name)}" title="Переименовать" aria-label="Переименовать ${esc(p.name)}">${ICON.edit}</button></td><td>${p.plays}</td><td>${p.wins}</td>
         <td><div class="rate"><i><b style="width:${rate ?? 0}%"></b></i>${rate == null ? '—' : rate + '%'}</div></td>
         <td class="muted">${esc(fav.get(norm(p.name))?.game ?? '—')}</td>
