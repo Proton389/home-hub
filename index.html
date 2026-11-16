@@ -341,6 +341,11 @@ html.tv .collapse { width: 34px; height: 34px; right: -17px; }
 <script>
 // Адрес веб-приложения Apps Script (заканчивается на /exec) — как его получить, написано в README.md.
 const API = 'https://script.google.com/macros/s/AKfycbw2fj5R4qPbx6eQ1jQoq0rtN3sbnRUDEmLnlLrDSazVF2KhZX8EnZxORVCDcdZ2oHXe/exec';
+// Посредник для тех, у кого Google недоступен (yandex-relay.js, README → «Доступ из России»). Пусто — не используется.
+// Если таблица не загрузилась напрямую за 10 секунд, устройство переходит на посредника и запоминает это.
+const RELAY = '', RELAY_KEY = 'hub-relay';
+let useRelay = (() => { try { return !!RELAY && localStorage.getItem(RELAY_KEY) === '1'; } catch { return false; } })();
+const apiUrl = () => useRelay ? RELAY : API;
 
 // Названия столбцов из Google-таблицы. Переименуете столбцы — поменяйте только здесь.
 const COL = { name: 'Название', min: 'Мин игроков', max: 'Макс игроков', time: 'Время', link: 'Ссылка', rules: 'Правила', cover: 'Обложка', place: 'Где искать', desc: 'Описание', kind: 'Тип', types: ['Coop', 'Noncoop', 'Traitor'] };  // «Тип» — вид игры через запятую («Вечеринка, Скрытые роли и блеф»); Coop/Noncoop/Traitor на сайте — «Режим»
@@ -400,7 +405,15 @@ function toast(msg, err = false) {
 
 const CACHE_KEY = 'hub-data';  // последняя загруженная таблица — чтобы сайт открывался и без связи
 async function fetchData() {
-  const data = await (await fetch(API)).json();
+  let data;
+  try {
+    data = await (await fetch(apiUrl(), useRelay || !RELAY ? {} : { signal: AbortSignal.timeout?.(10000) })).json();
+  } catch (e) {
+    if (useRelay || !RELAY) throw e;
+    data = await (await fetch(RELAY)).json();  // Google не ответил — на этом устройстве дальше всё через посредника
+    useRelay = true;
+    try { localStorage.setItem(RELAY_KEY, '1'); } catch {}
+  }
   if (data.error) throw new Error(data.error);
   const fresh = { log: [], ratings: [], ...data };
   try { localStorage.setItem(CACHE_KEY, JSON.stringify({ at: Date.now(), db: fresh })); } catch {}
@@ -454,7 +467,7 @@ async function requirePassword() {
       setPw(pw);
     }
     try {
-      const res = await (await fetch(API, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ op: 'check', password: getPw() }) })).json();
+      const res = await (await fetch(apiUrl(), { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ op: 'check', password: getPw() }) })).json();
       if (res.error === 'password') { setPw(''); wrong = true; continue; }
       // старый скрипт не знает команды «check» — значит, в таблице не развёрнута новая версия
       if (res.error === 'неверный запрос') toast('Скрипт в таблице устарел: вставьте новый apps-script.gs и разверните «Новую версию»', true);
@@ -486,7 +499,7 @@ async function sendSave(body, msg = 'Сохранено') {
     }
     try {
       // text/plain — чтобы браузер не слал предварительный запрос, который Apps Script не умеет принимать
-      const r = await fetch(API, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ ...body(), password: getPw() }) });
+      const r = await fetch(apiUrl(), { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ ...body(), password: getPw() }) });
       const res = await r.json();
       if (res.error === 'password') { setPw(''); wrong = true; continue; }
       if (res.error) throw new Error(res.error);
