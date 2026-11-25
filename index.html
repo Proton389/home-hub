@@ -237,6 +237,12 @@ td input:not([type=number]) { min-width: 130px; }
 .link-card:hover { border-color: color-mix(in srgb, var(--accent) 60%, var(--border)); transform: translateY(-2px); }
 .link-card b { display: block; margin-bottom: 2px; }
 .link-card .muted { font-size: 13px; }
+.sl-size { display: flex; align-items: center; gap: 6px; flex: 0 1 200px; }
+.sl-size input { flex: 1 1 0; min-width: 0; }
+.sl-card h3 { font-size: 16px; margin-bottom: 8px; }
+.sl-row { display: grid; grid-template-columns: minmax(0, 1fr) 90px auto 36px; gap: 8px; align-items: center; }
+.sl-row + .sl-row { border-top: 1px solid var(--border); padding-top: 4px; margin-top: 4px; }
+.sl-games { margin-top: 10px; font-size: 14px; }
 .link-icon { flex: none; width: 40px; height: 40px; border-radius: 10px; display: grid; place-items: center; color: var(--accent); background: var(--accent-soft); }
 
 .offline { margin: -8px 0 18px; padding: 10px 14px; border-radius: 10px; font-size: 14px; font-weight: 600; color: var(--warn); background: color-mix(in srgb, var(--warn) 12%, transparent); }
@@ -360,6 +366,7 @@ const TYPE_LABEL = { Coop: 'Кооператив', Noncoop: 'Соревнова�
 const typeLabel = t => TYPE_LABEL[t] ?? t;
 const PLAYS = { name: 'Название', count: 'Партий' };
 const PRE = { name: 'Название', date: 'ДД/ММ/ГГГГ' };
+const SLV = { name: 'Название', size: 'Размер', count: 'Количество' };  // лист «Протекторы» — запас протекторов
 const PL = { name: 'Игрок', games: 'Партий', wins: 'Побед' };
 const LOG = { id: 'ID', date: 'Дата', game: 'Игра', players: 'Игроки', winners: 'Победители', note: 'Заметка', scores: 'Очки' };  // лист «Журнал»
 const RATE = { game: 'Игра', player: 'Игрок', value: 'Оценка' };  // лист «Оценки»
@@ -390,7 +397,7 @@ const BRANCHES = [
   ] },
 ];
 
-let db = { games: [], preorders: [], players: [], log: [], ratings: [] };
+let db = { games: [], preorders: [], players: [], log: [], ratings: [], sleeves: [] };
 let branch, tab;
 
 const $ = s => document.querySelector(s);
@@ -422,7 +429,7 @@ async function fetchData() {
     try { localStorage.setItem(RELAY_KEY, '1'); } catch {}
   }
   if (data.error) throw new Error(data.error);
-  const fresh = { log: [], ratings: [], ...data };
+  const fresh = { log: [], ratings: [], sleeves: [], ...data };
   try { localStorage.setItem(CACHE_KEY, JSON.stringify({ at: Date.now(), db: fresh })); } catch {}
   $('#offline').hidden = true;
   return fresh;
@@ -1380,6 +1387,134 @@ function receivePreorder(p) {
   showGameForm(null, { [COL.name]: name }, done);
 }
 
+/* ---------- Протекторы ---------- */
+
+// «63,5×88», «88x63.5» → «63.5x88»: размер без учёта ориентации и записи
+const sizeKey = s => { const m = String(s ?? '').match(/([\d.,]+)\s*[×xх*]\s*([\d.,]+)/i); return m ? [num(m[1]), num(m[2])].sort((a, b) => a - b).join('x') : ''; };
+// Сколько карт каждого размера в игре: «200 шт. 63,5×88 · 100 шт. 80×120» → Map { '63.5x88' => 200, '80x120' => 100 }
+function cardNeeds(g) {
+  const need = new Map();
+  for (const m of String(g[COL.cards] ?? '').matchAll(/(\d+)\s*шт\.?\s*([\d.,]+\s*[×xх*]\s*[\d.,]+)/gi)) {
+    const k = sizeKey(m[2]);
+    need.set(k, (need.get(k) ?? 0) + Number(m[1]));
+  }
+  return need;
+}
+// Протекторы одного названия: какие игры ими упаковать целиком (есть все размеры карт игры) и каким не хватает штук.
+// Игры, уже упакованные в протекторы, не в счёт.
+// shortcut: размеры сравниваются точно — протекторы 63,5×88 не засчитываются картам 63×88; станет мешать — допуск в миллиметр.
+function sleeveFits(stock) {  // stock — Map { размер => шт. }
+  const enough = [], short = [];
+  for (const g of db.games) {
+    const need = cardNeeds(g);
+    if (!need.size || num(g[COL.sleeves]) === 1 || ![...need.keys()].every(k => stock.has(k))) continue;
+    const lack = [...need].reduce((s, [k, n]) => s + Math.max(0, n - stock.get(k)), 0);
+    if (lack) short.push({ g, lack }); else enough.push(g);
+  }
+  return { enough, short: short.sort((a, b) => a.lack - b.lack) };
+}
+// Запас по названиям (без учёта регистра и пробелов по краям): [{ name, rows: [{ r, i }], stock }]
+function sleeveGroups() {
+  const groups = new Map();
+  db.sleeves.forEach((r, i) => {
+    const k = norm(r[SLV.name]), size = sizeKey(r[SLV.size]);
+    if (!groups.has(k)) groups.set(k, { name: String(r[SLV.name] ?? '').trim(), rows: [], stock: new Map() });
+    const gr = groups.get(k);
+    gr.rows.push({ r, i });
+    gr.stock.set(size, (gr.stock.get(size) ?? 0) + num(r[SLV.count]));
+  });
+  return [...groups.values()].sort((a, b) => byName(a.name, b.name));
+}
+// Те же протекторы (название и размер) ещё раз — прибавляются к запасу; знакомое название пишется так же, как уже записано
+function addSleeves(count, w, h, name) {
+  const mm = v => String(num(v)).replace('.', ','), size = `${mm(w)}×${mm(h)}`;
+  name = String(db.sleeves.find(r => norm(r[SLV.name]) === norm(name))?.[SLV.name] ?? name).trim();
+  const row = db.sleeves.find(r => norm(r[SLV.name]) === norm(name) && sizeKey(r[SLV.size]) === sizeKey(size));
+  if (row) row[SLV.count] = num(row[SLV.count]) + count;
+  else db.sleeves.push({ [SLV.name]: name, [SLV.size]: size, [SLV.count]: count });
+  return save('sleeves', row ? `Добавлено к «${name}» ${size}` : 'Протекторы добавлены');
+}
+// Игру упаковали протекторами группы gr: из запаса уходят её карты по размерам, игра отмечается «в протекторах».
+// Сначала сохраняется отметка игры: не сохранилась — запас не трогаем и всё возвращаем как было.
+async function packGame(gr, g) {
+  const name = String(g[COL.name]).trim(), before = gr.rows.map(({ r }) => r[SLV.count]), wasSleeved = g[COL.sleeves];
+  for (const [k, n] of cardNeeds(g)) {
+    let left = n;
+    for (const { r } of gr.rows) {
+      if (!left || sizeKey(r[SLV.size]) !== k) continue;
+      const take = Math.min(left, num(r[SLV.count]));
+      r[SLV.count] = num(r[SLV.count]) - take;
+      left -= take;
+    }
+  }
+  g[COL.sleeves] = '1';
+  if (await send(() => ({ op: 'saveGame', original: name, fields: { [COL.name]: name, [COL.sleeves]: '1' } }), `«${name}» — в протекторах`)) {
+    return save('sleeves', `«${name}» упакована, протекторы списаны из запаса`);
+  }
+  gr.rows.forEach(({ r }, j) => { r[SLV.count] = before[j]; });
+  g[COL.sleeves] = wasSleeved;
+  return false;
+}
+
+function renderSleeves() {
+  const groups = sleeveGroups();
+  const mmInput = (n, ph, label) => `<input name="${n}" inputmode="decimal" pattern="[0-9]+([.,][0-9]+)?" required placeholder="${ph}" aria-label="${label}" title="Миллиметры, например 63,5">`;
+  return `<div class="card-head" style="margin-top:28px"><h2>Протекторы</h2></div>
+    <form class="card add-row" id="add-sleeve">
+      <input name="count" type="number" min="1" step="1" required placeholder="Сколько" aria-label="Сколько протекторов" style="flex:0 1 110px">
+      <span class="sl-size">${mmInput('w', '63,5', 'Ширина карты, мм')}×${mmInput('h', '88', 'Высота карты, мм')}</span>
+      <input name="name" list="sleeve-names" required placeholder="Название протекторов" aria-label="Название протекторов">
+      <datalist id="sleeve-names">${groups.map(gr => `<option value="${esc(gr.name)}">`).join('')}</datalist>
+      <button class="btn primary">Добавить</button>
+    </form>
+    <div class="muted hint">Размер — карт, для которых протекторы, как в столбце «Карты»: 63,5×88. Игра подходит, если все её карты можно упаковать протекторами с одним названием, — пишите его одинаково (уже записанные названия подсказываются).</div>
+    <div class="grid" id="sleeve-list" style="margin-top:14px">${groups.map(gr => {
+      const { enough, short } = sleeveFits(gr.stock);
+      return `<div class="card sl-card"><h3>${esc(gr.name)}</h3>
+        ${gr.rows.map(({ r, i }) => `<div class="sl-row"><span>${esc(r[SLV.size])}</span><input type="number" min="0" step="1" data-i="${i}" value="${num(r[SLV.count])}" aria-label="Сколько: ${esc(gr.name)} ${esc(r[SLV.size])}"><span class="muted">шт.</span><button class="btn icon ghost" data-del="${i}" title="Удалить" aria-label="Удалить ${esc(gr.name)} ${esc(r[SLV.size])}">${ICON.trash}</button></div>`).join('')}
+        <div class="sl-games">${enough.length ? `<b>Хватит на ${enough.length} ${plural(enough.length, 'игру', 'игры', 'игр')}</b> <span class="muted">— упаковали игру? Нажмите её, и протекторы спишутся из запаса</span>
+          <div class="chips" style="margin-top:6px">${enough.map(g => `<button class="chip" data-pack="${db.games.indexOf(g)}" data-group="${esc(norm(gr.name))}" title="Упаковали — списать протекторы из запаса">${esc(String(g[COL.name]).trim())}</button>`).join('')}</div>` : '<span class="muted">Целиком упаковать пока нечего</span>'}</div>
+        ${short.length ? `<div class="sl-games muted">Не хватает: ${short.map(x => `${esc(String(x.g[COL.name]).trim())} — ещё ${x.lack}`).join(', ')}</div>` : ''}
+      </div>`;
+    }).join('') || '<div class="muted">Протекторов пока нет — добавьте первые.</div>'}</div>`;
+}
+
+function bindSleeves() {
+  $('#add-sleeve').onsubmit = e => {
+    e.preventDefault();
+    const f = e.target.elements, name = f.name.value.trim();
+    if (!name) return toast('Впишите название протекторов', true);
+    addSleeves(Math.round(num(f.count.value)), f.w.value, f.h.value, name);
+    render();
+  };
+  const list = $('#sleeve-list');
+  let changed = false;
+  list.onchange = e => {
+    const r = db.sleeves[e.target.dataset.i];
+    if (!r) return;
+    r[SLV.count] = Math.max(0, Math.round(num(e.target.value)));
+    changed = true;
+    save('sleeves');
+  };
+  // пересчитать подходящие игры, когда фокус ушёл из списка, иначе ввод числа сбивается
+  list.onfocusout = e => { if (changed && !list.contains(e.relatedTarget)) render(); };
+  list.onclick = e => {
+    const p = e.target.closest('[data-pack]');
+    if (p) {
+      const g = db.games[p.dataset.pack], gr = sleeveGroups().find(x => norm(x.name) === p.dataset.group);
+      const take = g && [...cardNeeds(g)].map(([k, n]) => `${n} шт. ${k.replace('x', '×').replace(/\./g, ',')}`).join(', ');
+      if (!gr || !take || !confirm(`Упаковать «${String(g[COL.name]).trim()}» протекторами «${gr.name}»?\nИз запаса уйдёт: ${take}, игра отметится «в протекторах».`)) return;
+      packGame(gr, g).then(ok => ok || render());  // не сохранилось — показать возвращённый запас
+      return render();
+    }
+    const b = e.target.closest('[data-del]'), r = b && db.sleeves[b.dataset.del];
+    if (!r || !confirm(`Удалить протекторы «${r[SLV.name]}» ${r[SLV.size]}?`)) return;
+    db.sleeves.splice(b.dataset.del, 1);
+    save('sleeves', 'Протекторы удалены');
+    render();
+  };
+}
+
 /* ---------- Полезное ---------- */
 
 // Новая ссылка — ещё одна строка: [подпись, адрес]
@@ -1395,7 +1530,9 @@ function renderLinks(el) {
   el.innerHTML = `<div class="grid">${LINKS.map(([title, url]) => `<a class="card link-card" href="${esc(url)}" target="_blank" rel="noopener">
     <span class="link-icon">${ICON.ext}</span>
     <span><b>${esc(title)}</b><span class="muted">${esc(new URL(url).hostname.replace(/^www\./, ''))}</span></span></a>`).join('')}</div>
+    ${renderSleeves()}
     <div style="margin-top:18px"><button class="btn ghost sm" id="replay-tour">Показать подсказки по сайту ещё раз</button></div>`;
+  bindSleeves();
   $('#replay-tour').onclick = () => startTour();
 }
 
@@ -1410,7 +1547,7 @@ const TOUR = [
   { hash: '#/games/picker', el: '#add-game', title: 'Новые игры', text: 'Новую игру можно добавить прямо с сайта, а исправить — кнопкой «Изменить» в окне игры.' },
   { hash: '#/games/stats', el: '.charts', title: 'Статистика', text: 'Победы игроков, самые частые и лучшие по оценкам игры. Ниже — журнал всех партий и таблица игроков: карандашом рядом с именем игрока можно его переименовать.' },
   { hash: '#/games/preorders', el: ['.pre-list', '#add-pre'], title: 'Предзаказы', text: 'Когда ждать новые игры. Пришла коробка — нажмите «✓ Получен», и игра сразу попадёт в коллекцию.' },
-  { hash: '#/games/links', el: '#view .grid', title: 'Полезное', text: 'Подбор протекторов, музыка для игр и приложения-помощники для отдельных игр.' },
+  { hash: '#/games/links', el: '#view .grid', title: 'Полезное', text: 'Запас протекторов — и на какие игры его хватит целиком, подбор протекторов, музыка для игр и приложения-помощники для отдельных игр.' },
   { el: '#collapse', when: () => matchMedia('(min-width: 821px)').matches, title: 'Боковая панель', text: 'Стрелочкой панель сворачивается до иконок — для игр останется больше места.' },
   { title: 'Готово!', text: 'Смотреть сайт может любой, а менять данные — только с паролем. На телефон сайт можно поставить как приложение: меню браузера → «Установить приложение» или «На экран „Домой“». Подсказки можно открыть снова во вкладке «Полезное».' },
 ];
@@ -1550,7 +1687,7 @@ let cached = null;
 try { cached = JSON.parse(localStorage.getItem(CACHE_KEY)); } catch {}
 if (!API) $('#view').innerHTML = '<div class="empty">Сайт ещё не подключён к Google-таблице: впишите адрес Apps Script в строку <code>const API</code> в index.html (см. README.md).</div>';
 else {
-  if (cached?.db) { db = { log: [], ratings: [], ...cached.db }; route(); }  // мгновенно — прошлая копия; свежая подгрузится следом
+  if (cached?.db) { db = { log: [], ratings: [], sleeves: [], ...cached.db }; route(); }  // мгновенно — прошлая копия; свежая подгрузится следом
   refresh().catch(e => {
     if (cached?.db) {
       const at = new Date(cached.at).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });

@@ -187,6 +187,15 @@ pre.push({ Название: 'Stonesaga', 'ДД/ММ/ГГГГ': '01.03.2027' });
 assert.deepEqual(t.post({ key: 'preorders', rows: pre }), { ok: true });
 assert.deepEqual(t.sheet('Лист3').v.slice(1), [['TES', '01.12.2026', 'коробка', 'без заголовка'], ['Stonesaga', '01.03.2027', '']]);
 
+// протекторы: листа ещё нет — пустой список; первая запись создаёт лист «Протекторы» с заголовками
+t = setup();
+assert.deepEqual(t.get().sleeves, []);
+assert.deepEqual(t.post({ key: 'sleeves', rows: [{ Название: 'Mayday', Размер: '63,5×88', Количество: 100 }] }), { ok: true });
+assert.deepEqual(t.sheet('Протекторы').v, [['Название', 'Размер', 'Количество'], ['Mayday', '63,5×88', 100]]);
+assert.deepEqual(t.get().sleeves, [{ Название: 'Mayday', Размер: '63,5×88', Количество: '100' }]);
+assert.deepEqual(t.post({ key: 'sleeves', rows: [] }), { ok: true });
+assert.deepEqual(t.get().sleeves, []);
+
 // обнуление = очистка журнала; оценки остаются
 t = setup();
 t.post(play('Ханаби', ['Оверлорд'], ['Оверлорд']));

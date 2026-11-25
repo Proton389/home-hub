@@ -3,11 +3,12 @@
 
 // раздел сайта → id листа (число после gid= в адресе таблицы). По id, чтобы переименование листов ничего не ломало.
 var SHEETS = { games: 0, preorders: 489614522, players: 515997837 };
-var WRITABLE = ['preorders', 'players'];  // эти листы сайт сохраняет целиком
+var WRITABLE = ['preorders', 'players', 'sleeves'];  // эти листы сайт сохраняет целиком
 // Журнал и оценки — отдельные листы; скрипт создаёт их сам при первой записи. Не переименовывайте их.
 // «Очки» — «Мэри: 120, Инна: 95», только у тех, кому их вписали (в играх на победу/поражение столбец пустой)
 var LOG_SHEET = 'Журнал', LOG_SCORES = 'Очки', LOG_COLS = ['ID', 'Дата', 'Игра', 'Игроки', 'Победители', 'Заметка', LOG_SCORES];
 var RATINGS_SHEET = 'Оценки', RATING_COLS = ['Игра', 'Игрок', 'Оценка'];
+var SLEEVES_SHEET = 'Протекторы', SLEEVE_COLS = ['Название', 'Размер', 'Количество'];  // запас протекторов: «Mayday Standard», «63,5×88», 100
 // Столбцы-счётчики: скрипт пересчитывает их из журнала, руками их менять бесполезно
 var GAME_NAME = 'Название', GAME_PLAYS = 'Партий';               // Лист1
 var PLAYER_NAME = 'Игрок', PLAYER_PLAYS = 'Партий', PLAYER_WINS = 'Побед';  // Лист5
@@ -21,6 +22,7 @@ function doGet() {
     data.gameColumns = games.getRange(1, 1, 1, Math.max(1, games.getLastColumn())).getDisplayValues()[0].filter(Boolean);  // поля формы «Новая игра»
     data.log = readNamed(ss, LOG_SHEET);
     data.ratings = readNamed(ss, RATINGS_SHEET);
+    data.sleeves = readNamed(ss, SLEEVES_SHEET);
     return json(data);
   } catch (err) {
     return json({ error: String(err.message || err) });
@@ -97,7 +99,7 @@ function doPost(e) {
     }
     if (WRITABLE.indexOf(req.key) < 0 || !validRows(req.rows)) return bad;
     lock.waitLock(20000);  // два сохранения одновременно не перемешаются
-    writeSheet(sheetById(ss, SHEETS[req.key]), req.rows);
+    writeSheet(req.key === 'sleeves' ? getOrCreate(ss, SLEEVES_SHEET, SLEEVE_COLS) : sheetById(ss, SHEETS[req.key]), req.rows);
     if (req.key === 'players') syncCounters(ss);  // в присланной таблице могли быть устаревшие счётчики
     return json({ ok: true });
   } catch (err) {
