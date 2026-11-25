@@ -8,7 +8,7 @@ const line = start => html.split('\n').find(l => l.startsWith(start));
 const block = html.slice(html.indexOf('/* ---------- Протекторы'), html.indexOf('/* ---------- Полезное'));
 const ctx = vm.createContext({ db: { games: [], sleeves: [] }, save: () => Promise.resolve(true), send: body => { ctx.sent = body(); return Promise.resolve(ctx.ok); } });
 vm.runInContext([line('const COL ='), line('const SLV ='), line('const num ='), line('const norm ='), line('const byName ='), block].join('\n'), ctx);
-const { sizeKey, cardNeeds, sleeveFits, sleeveGroups, addSleeves, packGame, wholePlan, mixedPlan } = vm.runInContext('({ sizeKey, cardNeeds, sleeveFits, sleeveGroups, addSleeves, packGame, wholePlan, mixedPlan })', ctx);
+const { sizeKey, cardNeeds, sleeveFits, sleeveGroups, addSleeves, packGame, wholePlan, mixedPlan, buyOptions } = vm.runInContext('({ sizeKey, cardNeeds, sleeveFits, sleeveGroups, addSleeves, packGame, wholePlan, mixedPlan, buyOptions })', ctx);
 const plain = x => JSON.parse(JSON.stringify(x));  // массивы из vm — другого «мира», deepEqual без этого их не сравнит
 
 // размер — без учёта ориентации, запятой/точки и вида «×»
@@ -82,5 +82,26 @@ assert.equal(await packGame(mix, plans[0]), true);
 assert.deepEqual(counts(), [40, 50, 10, 60]);
 assert.equal(mix.Протекторы, '1');
 assert.equal(mixedPlan(mix, sleeveGroups()), null);  // упакованная — больше не предлагается
+
+// «Сколько докупить»: по варианту на марку; запас других марок идёт в дело, размер игры не делится; «Неизвестные» не в счёт
+ctx.db.sleeves = [
+  { Название: 'P', Размер: '63,5×88', Количество: '100' },
+  { Название: 'U', Размер: '63,5×88', Количество: '30' },
+  { Название: 'M', Размер: '44×68', Количество: '10' },
+  { Название: 'Неизвестные', Размер: '63,5×88', Количество: '1000' },
+];
+ctx.db.games = [
+  game('Г1', '80 шт. 63,5×88'),
+  game('Г2', '40 шт. 63,5×88 · 20 шт. 44×68'),
+  game('Г3', '25 шт. 63,5×88'),
+  game('Упакована', '500 шт. 63,5×88', '1'),
+];
+const buy = () => plain(buyOptions(sleeveGroups()).map(o => [o.gr.name, o.total, Object.fromEntries(o.plan)]));
+// P: 25 карт Г3 — в 30 шт. U, Г1 и Г2 (120) — из своих 100 → докупить 20; 44×68 у M всего 10, Г2 нужно 20 → 20 P
+// M: Г1 → 100 шт. P, Г3 → 30 шт. U, Г2 (40) некуда → 40 M; 44×68: свои 10 + докупить 10
+// U: Г1 → P (остаётся 20), Г2 и Г3 (65) — свои 30 + 35; 44×68 — все 20
+assert.deepEqual(buy(), [['P', 40, { '63.5x88': 20, '44x68': 20 }], ['M', 50, { '63.5x88': 40, '44x68': 10 }], ['U', 55, { '63.5x88': 35, '44x68': 20 }]]);
+ctx.db.sleeves.push({ Название: 'P', Размер: '44×68', Количество: '20' });
+assert.deepEqual(buy()[0], ['P', 20, { '63.5x88': 20 }]);
 
 console.log('протекторы: все проверки прошли');

@@ -1451,6 +1451,34 @@ function mixedPlan(g, groups) {
   return groups.some(gr => [...need].every(([k, n]) => has(gr, k, n))) ? null : plan;  // хватает одного названия — игра уже в его карточке
 }
 const sizeText = k => k.replace('x', '×').replace(/\./g, ',');
+
+// «Сколько докупить»: эти названия не считаются ни запасом, ни вариантом покупки
+const SLEEVES_IGNORED = ['неизвестные', 'неизвестные1', 'неизвестные2'];
+// Сколько докупить марки buy, чтобы упаковать все игры без протекторов: Map { размер => шт. }.
+// Каждый размер игры — целиком одним названием: пары «игра, размер» сначала раздаются по запасу других названий,
+// что не поместилось — марке buy (её запас + докупка).
+// shortcut: раздача жадная (крупные пары — в самый тесный подходящий запас) и не всегда наилучшая; станет мешать — полный перебор.
+function buyPlan(buy, groups) {
+  const pairs = new Map();  // размер => [сколько карт этого размера у каждой игры]
+  for (const g of db.games) if (num(g[COL.sleeves]) !== 1) for (const [k, n] of cardNeeds(g)) pairs.set(k, [...(pairs.get(k) ?? []), n]);
+  const plan = new Map();
+  for (const [k, ns] of pairs) {
+    const left = groups.filter(gr => gr !== buy).map(gr => gr.stock.get(k) ?? 0);
+    let rest = 0;
+    for (const n of ns.sort((a, b) => b - a)) {
+      const fit = left.reduce((best, v, j) => v >= n && (best < 0 || v < left[best]) ? j : best, -1);
+      if (fit >= 0) left[fit] -= n; else rest += n;
+    }
+    if (rest > (buy.stock.get(k) ?? 0)) plan.set(k, rest - (buy.stock.get(k) ?? 0));
+  }
+  return plan;
+}
+// Варианты «докупить одну марку» — по каждому названию, кроме SLEEVES_IGNORED; сначала самые выгодные
+function buyOptions(groups) {
+  const usable = groups.filter(gr => !SLEEVES_IGNORED.includes(norm(gr.name)));
+  return usable.map(gr => { const plan = buyPlan(gr, usable); return { gr, plan, total: [...plan.values()].reduce((a, b) => a + b, 0) }; })
+    .sort((a, b) => a.total - b.total || byName(a.gr.name, b.gr.name));
+}
 const planText = (g, plan, sep) => [...cardNeeds(g)].map(([k, n]) => `${n} шт. ${sizeText(k)} — «${plan.get(k).name}»`).join(sep);
 
 // Игру упаковали по плану: из запаса уходят её карты по размерам, игра отмечается «в протекторах».
@@ -1480,7 +1508,9 @@ function renderSleeves(el) {
   const groups = sleeveGroups(), mixed = groups.length > 1 ? db.games.map(g => [g, mixedPlan(g, groups)]).filter(x => x[1]) : [];
   const mmInput = (n, ph, label) => `<input name="${n}" inputmode="decimal" pattern="[0-9]+([.,][0-9]+)?" required placeholder="${ph}" aria-label="${label}" title="Миллиметры, например 63,5">`;
   const fold = (key, summary, body, cls = '') => `<details class="sl-games ${cls}" data-open="${esc(key)}"${slOpen.has(key) ? ' open' : ''}><summary>${summary}</summary>${body}</details>`;
-  const games = n => `${n} ${plural(n, 'игру', 'игры', 'игр')}`;
+  const games = n => `${n} ${plural(n, 'игру', 'игры', 'игр')}`, fmtN = n => n.toLocaleString('ru-RU');
+  const bare = db.games.filter(g => num(g[COL.sleeves]) !== 1 && cardNeeds(g).size), cards = bare.reduce((s, g) => s + [...cardNeeds(g).values()].reduce((a, b) => a + b, 0), 0);
+  const options = bare.length ? buyOptions(groups) : [];
   el.innerHTML = `<form class="card add-row" id="add-sleeve">
       <input name="count" type="number" min="1" step="1" required placeholder="Сколько" aria-label="Сколько протекторов" style="flex:0 1 110px">
       <span class="sl-size">${mmInput('w', '63,5', 'Ширина карты, мм')}×${mmInput('h', '88', 'Высота карты, мм')}</span>
@@ -1489,6 +1519,11 @@ function renderSleeves(el) {
       <button class="btn primary">Добавить</button>
     </form>
     <div class="muted hint">Размер — карт, для которых протекторы, как в столбце «Карты»: 63,5×88. Игра подходит, если все её карты можно упаковать протекторами с одним названием, — пишите его одинаково (уже записанные названия подсказываются). Игры, где разные размеры карт упаковываются разными названиями, — в блоке «Смешанные».</div>
+    <div class="card sl-card" id="sl-need" style="margin-top:14px"><h3>Сколько докупить</h3>
+      ${!bare.length ? '<div class="muted">Все игры с картами уже в протекторах.</div>' : `<div class="muted hint">Без протекторов ${bare.length} ${plural(bare.length, 'игра', 'игры', 'игр')} — это ${fmtN(cards)} ${plural(cards, 'карта', 'карты', 'карт')}. Варианты — если докупать одну марку: то, что уже есть, идёт в дело, а каждый размер карт игры упаковывается одним названием. «Неизвестные» не учитываются.</div>
+      ${options.map(({ gr, plan, total }) => fold('buy|' + norm(gr.name), total ? `<b>${esc(gr.name)}</b> — докупить ${fmtN(total)} шт.` : `<b>${esc(gr.name)}</b> — хватает, докупать не нужно`,
+        `<div style="margin-top:6px">${[...plan].sort((a, b) => b[1] - a[1]).map(([k, n]) => `${sizeText(k)} — ${fmtN(n)}`).join(', ')}</div>`)).join('') || '<div class="muted">Добавьте протекторы с названием марки — здесь появятся варианты, что докупить.</div>'}`}
+    </div>
     <div class="grid" id="sleeve-list" style="margin-top:14px">${groups.map(gr => {
       const { enough, short } = sleeveFits(gr.stock);
       return `<div class="card sl-card"><h3>${esc(gr.name)}</h3>
@@ -1514,7 +1549,8 @@ function renderSleeves(el) {
     render();
   };
   const list = $('#sleeve-list');
-  list.addEventListener('toggle', e => { const k = e.target.dataset.open; if (k) e.target.open ? slOpen.add(k) : slOpen.delete(k); }, true);  // toggle не всплывает — ловим на погружении
+  // toggle не всплывает — ловим на погружении
+  [list, $('#sl-need')].forEach(x => x.addEventListener('toggle', e => { const k = e.target.dataset.open; if (k) e.target.open ? slOpen.add(k) : slOpen.delete(k); }, true));
   let changed = false;
   list.onchange = e => {
     const r = db.sleeves[e.target.dataset.i];
