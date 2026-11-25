@@ -1438,18 +1438,20 @@ function addSleeves(count, w, h, name) {
 }
 // План упаковки — Map { размер карт => группа протекторов, которой упаковываются ВСЕ карты этого размера }
 const wholePlan = (gr, g) => new Map([...cardNeeds(g).keys()].map(k => [k, gr]));
-// «Смешанные»: игру не упаковать одним названием, но каждый её размер целиком закрывает какое-то одно название.
-// Размер не делится между названиями. Из подходящих названий берётся то, где этого размера больше всего.
-function mixedPlan(g, groups) {
-  const need = cardNeeds(g), plan = new Map(), has = (gr, k, n) => (gr.stock.get(k) ?? 0) >= n;
+// «Смешанные»: каждый размер карт игры целиком закрывает какое-то одно название (размер между названиями не делится),
+// и названий на выбор больше одного. Map { размер => подходящие группы, где этого размера больше — первыми } или null.
+function mixedChoices(g, groups) {
+  const need = cardNeeds(g), out = new Map();
   if (need.size < 2 || num(g[COL.sleeves]) === 1) return null;
   for (const [k, n] of need) {
-    const ok = groups.filter(gr => has(gr, k, n));
+    const ok = groups.filter(gr => (gr.stock.get(k) ?? 0) >= n).sort((a, b) => b.stock.get(k) - a.stock.get(k));
     if (!ok.length) return null;
-    plan.set(k, ok.reduce((a, b) => b.stock.get(k) > a.stock.get(k) ? b : a));
+    out.set(k, ok);
   }
-  return groups.some(gr => [...need].every(([k, n]) => has(gr, k, n))) ? null : plan;  // хватает одного названия — игра уже в его карточке
+  return new Set([...out.values()].flat()).size > 1 ? out : null;  // все размеры закрывает только одно название — смешивать нечего
 }
+// План по умолчанию: каждому размеру — название, где его больше всего
+const mixedPlan = (g, groups) => { const c = mixedChoices(g, groups); return c && new Map([...c].map(([k, ok]) => [k, ok[0]])); };
 const sizeText = k => k.replace('x', '×').replace(/\./g, ',');
 
 // «Сколько докупить»: эти названия не считаются ни запасом, ни вариантом покупки
@@ -1503,6 +1505,34 @@ async function packGame(g, plan) {
   return false;
 }
 
+// Окно «Смешанных»: для каждого размера выбирается название, которое упакует все его карты
+function choosePlan(g, groups) {
+  const choices = mixedChoices(g, groups), name = String(g[COL.name]).trim(), d = $('#dialog');
+  if (!choices) return;
+  const sizes = [...cardNeeds(g)];
+  if (d.open) d.close();
+  d.innerHTML = `<form class="dialog-body" id="pack-form">
+    <div class="game-top"><h3 class="info-title">Упаковать «${esc(name)}»</h3><button type="button" class="btn icon ghost" id="pack-close" aria-label="Закрыть">✕</button></div>
+    <div class="muted">Все карты одного размера — протекторами одного названия. Из запаса уйдёт:</div>
+    ${sizes.map(([k, n], j) => `<label class="field"><span>${n} шт. ${sizeText(k)}</span><select name="s${j}">${choices.get(k).map((gr, v) =>
+      `<option value="${v}">${esc(gr.name)} — есть ${gr.stock.get(k)} шт.</option>`).join('')}</select></label>`).join('')}
+    <div class="muted">Игра отметится «в протекторах».</div>
+    <div class="dialog-actions"><button type="button" class="btn ghost" id="pack-cancel">Отмена</button><button class="btn primary">Упаковать</button></div>
+  </form>`;
+  const f = $('#pack-form');
+  f.onsubmit = e => {
+    e.preventDefault();
+    const plan = new Map(sizes.map(([k], j) => [k, choices.get(k)[f.elements['s' + j].value]]));
+    d.close();
+    packGame(g, plan).then(ok => ok || render());  // не сохранилось — показать возвращённый запас
+    render();
+  };
+  $('#pack-cancel').onclick = $('#pack-close').onclick = () => d.close();
+  d.onclick = e => { if (e.target === d) d.close(); };
+  d.oncancel = null;
+  d.showModal();
+}
+
 const slOpen = new Set();  // развёрнутые списки игр — чтобы после упаковки игры список не сворачивался
 function renderSleeves(el) {
   const groups = sleeveGroups(), mixed = groups.length > 1 ? db.games.map(g => [g, mixedPlan(g, groups)]).filter(x => x[1]) : [];
@@ -1536,7 +1566,7 @@ function renderSleeves(el) {
     ${groups.length > 1 ? `<div class="card sl-card"><h3>Смешанные</h3>
       <div class="muted hint">Протекторы разных названий: каждый размер карт игры целиком упаковывается одним названием.</div>
       ${mixed.length ? fold('|mixed', `<b>Хватит на ${games(mixed.length)}</b>`,
-        `<div class="muted hint">Упаковали игру? Нажмите её — протекторы спишутся из запаса.</div><div class="chips" style="margin-top:6px">${mixed.map(([g, plan]) => `<button class="chip" data-pack="${db.games.indexOf(g)}" title="${esc(planText(g, plan, ', '))}">${esc(String(g[COL.name]).trim())}</button>`).join('')}</div>`)
+        `<div class="muted hint">Упаковали игру? Нажмите её и выберите, какими протекторами упакован каждый размер, — они спишутся из запаса.</div><div class="chips" style="margin-top:6px">${mixed.map(([g]) => `<button class="chip" data-pack="${db.games.indexOf(g)}" title="Выбрать протекторы для каждого размера">${esc(String(g[COL.name]).trim())}</button>`).join('')}</div>`)
         : '<div class="sl-games muted">Пока нечего — ни одной игре не собрать все размеры из разных названий</div>'}
     </div>` : ''}</div>`;
 
@@ -1564,7 +1594,8 @@ function renderSleeves(el) {
     const p = e.target.closest('[data-pack]');
     if (p) {
       const g = db.games[p.dataset.pack], groups = sleeveGroups(), gr = groups.find(x => norm(x.name) === p.dataset.group);
-      const plan = g && (p.dataset.group ? gr && wholePlan(gr, g) : mixedPlan(g, groups));  // без data-group — кнопка из «Смешанных»
+      if (g && !p.dataset.group) return choosePlan(g, groups);  // без data-group — кнопка из «Смешанных»
+      const plan = g && gr && wholePlan(gr, g);
       if (!plan?.size || !confirm(`Упаковать «${String(g[COL.name]).trim()}»?\nИз запаса уйдёт:\n${planText(g, plan, '\n')}\nИгра отметится «в протекторах».`)) return;
       packGame(g, plan).then(ok => ok || render());  // не сохранилось — показать возвращённый запас
       return render();

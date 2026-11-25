@@ -8,7 +8,7 @@ const line = start => html.split('\n').find(l => l.startsWith(start));
 const block = html.slice(html.indexOf('/* ---------- Протекторы'), html.indexOf('/* ---------- Полезное'));
 const ctx = vm.createContext({ db: { games: [], sleeves: [] }, save: () => Promise.resolve(true), send: body => { ctx.sent = body(); return Promise.resolve(ctx.ok); } });
 vm.runInContext([line('const COL ='), line('const SLV ='), line('const num ='), line('const norm ='), line('const byName ='), block].join('\n'), ctx);
-const { sizeKey, cardNeeds, sleeveFits, sleeveGroups, addSleeves, packGame, wholePlan, mixedPlan, buyOptions } = vm.runInContext('({ sizeKey, cardNeeds, sleeveFits, sleeveGroups, addSleeves, packGame, wholePlan, mixedPlan, buyOptions })', ctx);
+const { sizeKey, cardNeeds, sleeveFits, sleeveGroups, addSleeves, packGame, wholePlan, mixedPlan, mixedChoices, buyOptions } = vm.runInContext('({ sizeKey, cardNeeds, sleeveFits, sleeveGroups, addSleeves, packGame, wholePlan, mixedPlan, mixedChoices, buyOptions })', ctx);
 const plain = x => JSON.parse(JSON.stringify(x));  // массивы из vm — другого «мира», deepEqual без этого их не сравнит
 
 // размер — без учёта ориентации, запятой/точки и вида «×»
@@ -67,19 +67,24 @@ ctx.db.sleeves = [
   { Название: 'B', Размер: '34×100', Количество: '50' },
   { Название: 'B', Размер: '40×56', Количество: '10' },
   { Название: 'C', Размер: '100×34', Количество: '100' },
+  { Название: 'D', Размер: '70×120', Количество: '5' },
+  { Название: 'D', Размер: '80×80', Количество: '5' },
 ];
 ctx.db.games = [
   game('Смесь', '60 шт. 40×56 · 40 шт. 34×100'),
-  game('Одним названием', '5 шт. 40×56 · 5 шт. 34×100'),     // B хватает на всё — это не «смешанная»
+  game('Одним названием', '5 шт. 40×56 · 5 шт. 34×100'),     // B хватает на всё, но можно и смешать — тоже здесь
+  game('Только D', '1 шт. 70×120 · 1 шт. 80×80'),           // оба размера есть только у D — смешивать нечего
   game('Делить нельзя', '105 шт. 40×56 · 1 шт. 34×100'),     // 100 у A + 10 у B = 110, но один размер не делится
   game('Один размер', '10 шт. 40×56'),
   game('Смесь, уже упакована', '1 шт. 40×56 · 1 шт. 34×100', '1'),
 ];
 const groups = sleeveGroups(), plans = ctx.db.games.map(g => mixedPlan(g, groups));
-assert.deepEqual(plans.map(p => p && plain([...p].map(([k, gr]) => [k, gr.name]))), [[['40x56', 'A'], ['34x100', 'C']], null, null, null, null]);  // для 34×100 подходят B и C — берётся C, где больше
+assert.deepEqual(plans.map(p => p && plain([...p].map(([k, gr]) => [k, gr.name]))), [[['40x56', 'A'], ['34x100', 'C']], [['40x56', 'A'], ['34x100', 'C']], null, null, null, null]);  // по умолчанию — где размера больше
+// на выбор — только названия, закрывающие размер целиком; где больше — первым
+assert.deepEqual(plain([...mixedChoices(ctx.db.games[1], groups)].map(([k, ok]) => [k, ok.map(gr => gr.name)])), [['40x56', ['A', 'B']], ['34x100', ['C', 'B']]]);
 const mix = ctx.db.games[0];
 assert.equal(await packGame(mix, plans[0]), true);
-assert.deepEqual(counts(), [40, 50, 10, 60]);
+assert.deepEqual(counts(), [40, 50, 10, 60, 5, 5]);
 assert.equal(mix.Протекторы, '1');
 assert.equal(mixedPlan(mix, sleeveGroups()), null);  // упакованная — больше не предлагается
 
