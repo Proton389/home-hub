@@ -243,6 +243,7 @@ td input:not([type=number]) { min-width: 130px; }
 .sl-row { display: grid; grid-template-columns: minmax(0, 1fr) 90px auto 36px; gap: 8px; align-items: center; }
 .sl-row + .sl-row { border-top: 1px solid var(--border); padding-top: 4px; margin-top: 4px; }
 .sl-games { margin-top: 10px; font-size: 14px; }
+.sl-games summary { cursor: pointer; }
 .link-icon { flex: none; width: 40px; height: 40px; border-radius: 10px; display: grid; place-items: center; color: var(--accent); background: var(--accent-soft); }
 
 .offline { margin: -8px 0 18px; padding: 10px 14px; border-radius: 10px; font-size: 14px; font-weight: 600; color: var(--warn); background: color-mix(in srgb, var(--warn) 12%, transparent); }
@@ -393,6 +394,7 @@ const BRANCHES = [
     { id: 'picker', title: 'Подбор', render: renderPicker },
     { id: 'stats', title: 'Статистика', render: renderStats },
     { id: 'preorders', title: 'Предзаказы', render: renderPreorders },
+    { id: 'sleeves', title: 'Протекторы', render: renderSleeves },
     { id: 'links', title: 'Полезное', render: renderLinks },
   ] },
 ];
@@ -1456,11 +1458,13 @@ async function packGame(gr, g) {
   return false;
 }
 
-function renderSleeves() {
+const slOpen = new Set();  // развёрнутые списки игр — чтобы после упаковки игры список не сворачивался
+function renderSleeves(el) {
   const groups = sleeveGroups();
   const mmInput = (n, ph, label) => `<input name="${n}" inputmode="decimal" pattern="[0-9]+([.,][0-9]+)?" required placeholder="${ph}" aria-label="${label}" title="Миллиметры, например 63,5">`;
-  return `<div class="card-head" style="margin-top:28px"><h2>Протекторы</h2></div>
-    <form class="card add-row" id="add-sleeve">
+  const fold = (key, summary, body, cls = '') => `<details class="sl-games ${cls}" data-open="${esc(key)}"${slOpen.has(key) ? ' open' : ''}><summary>${summary}</summary>${body}</details>`;
+  const games = n => `${n} ${plural(n, 'игру', 'игры', 'игр')}`;
+  el.innerHTML = `<form class="card add-row" id="add-sleeve">
       <input name="count" type="number" min="1" step="1" required placeholder="Сколько" aria-label="Сколько протекторов" style="flex:0 1 110px">
       <span class="sl-size">${mmInput('w', '63,5', 'Ширина карты, мм')}×${mmInput('h', '88', 'Высота карты, мм')}</span>
       <input name="name" list="sleeve-names" required placeholder="Название протекторов" aria-label="Название протекторов">
@@ -1472,14 +1476,13 @@ function renderSleeves() {
       const { enough, short } = sleeveFits(gr.stock);
       return `<div class="card sl-card"><h3>${esc(gr.name)}</h3>
         ${gr.rows.map(({ r, i }) => `<div class="sl-row"><span>${esc(r[SLV.size])}</span><input type="number" min="0" step="1" data-i="${i}" value="${num(r[SLV.count])}" aria-label="Сколько: ${esc(gr.name)} ${esc(r[SLV.size])}"><span class="muted">шт.</span><button class="btn icon ghost" data-del="${i}" title="Удалить" aria-label="Удалить ${esc(gr.name)} ${esc(r[SLV.size])}">${ICON.trash}</button></div>`).join('')}
-        <div class="sl-games">${enough.length ? `<b>Хватит на ${enough.length} ${plural(enough.length, 'игру', 'игры', 'игр')}</b> <span class="muted">— упаковали игру? Нажмите её, и протекторы спишутся из запаса</span>
-          <div class="chips" style="margin-top:6px">${enough.map(g => `<button class="chip" data-pack="${db.games.indexOf(g)}" data-group="${esc(norm(gr.name))}" title="Упаковали — списать протекторы из запаса">${esc(String(g[COL.name]).trim())}</button>`).join('')}</div>` : '<span class="muted">Целиком упаковать пока нечего</span>'}</div>
-        ${short.length ? `<div class="sl-games muted">Не хватает: ${short.map(x => `${esc(String(x.g[COL.name]).trim())} — ещё ${x.lack}`).join(', ')}</div>` : ''}
+        ${enough.length ? fold(norm(gr.name) + '|fit', `<b>Хватит на ${games(enough.length)}</b>`,
+          `<div class="muted hint">Упаковали игру? Нажмите её — протекторы спишутся из запаса.</div><div class="chips" style="margin-top:6px">${enough.map(g => `<button class="chip" data-pack="${db.games.indexOf(g)}" data-group="${esc(norm(gr.name))}" title="Упаковали — списать протекторы из запаса">${esc(String(g[COL.name]).trim())}</button>`).join('')}</div>`)
+          : '<div class="sl-games muted">Целиком упаковать пока нечего</div>'}
+        ${short.length ? fold(norm(gr.name) + '|short', `Не хватает на ${games(short.length)}`, `<div style="margin-top:6px">${short.map(x => `${esc(String(x.g[COL.name]).trim())} — ещё ${x.lack}`).join(', ')}</div>`, 'muted') : ''}
       </div>`;
     }).join('') || '<div class="muted">Протекторов пока нет — добавьте первые.</div>'}</div>`;
-}
 
-function bindSleeves() {
   $('#add-sleeve').onsubmit = e => {
     e.preventDefault();
     const f = e.target.elements, name = f.name.value.trim();
@@ -1488,6 +1491,7 @@ function bindSleeves() {
     render();
   };
   const list = $('#sleeve-list');
+  list.addEventListener('toggle', e => { const k = e.target.dataset.open; if (k) e.target.open ? slOpen.add(k) : slOpen.delete(k); }, true);  // toggle не всплывает — ловим на погружении
   let changed = false;
   list.onchange = e => {
     const r = db.sleeves[e.target.dataset.i];
@@ -1530,9 +1534,7 @@ function renderLinks(el) {
   el.innerHTML = `<div class="grid">${LINKS.map(([title, url]) => `<a class="card link-card" href="${esc(url)}" target="_blank" rel="noopener">
     <span class="link-icon">${ICON.ext}</span>
     <span><b>${esc(title)}</b><span class="muted">${esc(new URL(url).hostname.replace(/^www\./, ''))}</span></span></a>`).join('')}</div>
-    ${renderSleeves()}
     <div style="margin-top:18px"><button class="btn ghost sm" id="replay-tour">Показать подсказки по сайту ещё раз</button></div>`;
-  bindSleeves();
   $('#replay-tour').onclick = () => startTour();
 }
 
@@ -1547,7 +1549,8 @@ const TOUR = [
   { hash: '#/games/picker', el: '#add-game', title: 'Новые игры', text: 'Новую игру можно добавить прямо с сайта, а исправить — кнопкой «Изменить» в окне игры.' },
   { hash: '#/games/stats', el: '.charts', title: 'Статистика', text: 'Победы игроков, самые частые и лучшие по оценкам игры. Ниже — журнал всех партий и таблица игроков: карандашом рядом с именем игрока можно его переименовать.' },
   { hash: '#/games/preorders', el: ['.pre-list', '#add-pre'], title: 'Предзаказы', text: 'Когда ждать новые игры. Пришла коробка — нажмите «✓ Получен», и игра сразу попадёт в коллекцию.' },
-  { hash: '#/games/links', el: '#view .grid', title: 'Полезное', text: 'Запас протекторов — и на какие игры его хватит целиком, подбор протекторов, музыка для игр и приложения-помощники для отдельных игр.' },
+  { hash: '#/games/sleeves', el: '#add-sleeve', title: 'Протекторы', text: 'Сколько протекторов есть дома и на какие игры их хватит целиком. Упаковали игру — нажмите её в списке, и протекторы спишутся из запаса.' },
+  { hash: '#/games/links', el: '#view .grid', title: 'Полезное', text: 'Подбор протекторов, музыка для игр и приложения-помощники для отдельных игр.' },
   { el: '#collapse', when: () => matchMedia('(min-width: 821px)').matches, title: 'Боковая панель', text: 'Стрелочкой панель сворачивается до иконок — для игр останется больше места.' },
   { title: 'Готово!', text: 'Смотреть сайт может любой, а менять данные — только с паролем. На телефон сайт можно поставить как приложение: меню браузера → «Установить приложение» или «На экран „Домой“». Подсказки можно открыть снова во вкладке «Полезное».' },
 ];
