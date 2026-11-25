@@ -1518,7 +1518,6 @@ function renderSleeves(el) {
       <datalist id="sleeve-names">${groups.map(gr => `<option value="${esc(gr.name)}">`).join('')}</datalist>
       <button class="btn primary">Добавить</button>
     </form>
-    <div class="muted hint">Размер — карт, для которых протекторы, как в столбце «Карты»: 63,5×88. Игра подходит, если все её карты можно упаковать протекторами с одним названием, — пишите его одинаково (уже записанные названия подсказываются). Игры, где разные размеры карт упаковываются разными названиями, — в блоке «Смешанные».</div>
     <div class="card sl-card" id="sl-need" style="margin-top:14px"><h3>Сколько докупить</h3>
       ${!bare.length ? '<div class="muted">Все игры с картами уже в протекторах.</div>' : `<div class="muted hint">Без протекторов ${bare.length} ${plural(bare.length, 'игра', 'игры', 'игр')} — это ${fmtN(cards)} ${plural(cards, 'карта', 'карты', 'карт')}.</div>
       ${options.map(({ gr, plan, total }) => fold('buy|' + norm(gr.name), total ? `<b>${esc(gr.name)}</b> — докупить ${fmtN(total)} шт.` : `<b>${esc(gr.name)}</b> — хватает, докупать не нужно`,
