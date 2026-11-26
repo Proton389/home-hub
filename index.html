@@ -244,6 +244,8 @@ td input:not([type=number]) { min-width: 130px; }
 .sl-row + .sl-row { border-top: 1px solid var(--border); padding-top: 4px; margin-top: 4px; }
 .sl-games { margin-top: 10px; font-size: 14px; }
 .sl-games summary { cursor: pointer; }
+.sl-first { color: var(--warn); font-weight: 700; }  /* игры «в первую очередь» и их протекторы */
+.chip.sl-first { border-color: var(--warn); background: color-mix(in srgb, var(--warn) 14%, transparent); }
 .link-icon { flex: none; width: 40px; height: 40px; border-radius: 10px; display: grid; place-items: center; color: var(--accent); background: var(--accent-soft); }
 
 .offline { margin: -8px 0 18px; padding: 10px 14px; border-radius: 10px; font-size: 14px; font-weight: 600; color: var(--warn); background: color-mix(in srgb, var(--warn) 12%, transparent); }
@@ -361,7 +363,7 @@ let useRelay = (() => { try { return !!RELAY && localStorage.getItem(RELAY_KEY) 
 const apiUrl = () => useRelay ? RELAY : API;
 
 // Названия столбцов из Google-таблицы. Переименуете столбцы — поменяйте только здесь.
-const COL = { name: 'Название', min: 'Мин игроков', max: 'Макс игроков', time: 'Время', link: 'Ссылка', rules: 'Правила', cover: 'Обложка', place: 'Где искать', desc: 'Описание', kind: 'Тип', sleeves: 'Протекторы', cards: 'Карты', weight: 'Сложность', types: ['Coop', 'Noncoop', 'Traitor'] };  // «Протекторы» — 1, если карты в протекторах  // «Карты» — сколько и какого размера («110 шт. 56×87»)  // «Сложность» — средний «вес» правил с BoardGameGeek, 1–5  // «Тип» — вид игры через запятую («Вечеринка, Скрытые роли и блеф»); Coop/Noncoop/Traitor на сайте — «Режим»
+const COL = { name: 'Название', min: 'Мин игроков', max: 'Макс игроков', time: 'Время', link: 'Ссылка', rules: 'Правила', cover: 'Обложка', place: 'Где искать', desc: 'Описание', kind: 'Тип', sleeves: 'Протекторы', first: 'Приоритет', cards: 'Карты', weight: 'Сложность', types: ['Coop', 'Noncoop', 'Traitor'] };  // «Протекторы» — 1, если карты в протекторах  // «Приоритет» — 1, если игру упаковать в протекторы в первую очередь  // «Карты» — сколько и какого размера («110 шт. 56×87»)  // «Сложность» — средний «вес» правил с BoardGameGeek, 1–5  // «Тип» — вид игры через запятую («Вечеринка, Скрытые роли и блеф»); Coop/Noncoop/Traitor на сайте — «Режим»
 // Как типы подписаны на сайте (ключи — названия столбцов в таблице).
 const TYPE_LABEL = { Coop: 'Кооператив', Noncoop: 'Соревновательная', Traitor: 'С предателем' };
 const typeLabel = t => TYPE_LABEL[t] ?? t;
@@ -730,8 +732,9 @@ async function showGameForm(g = null, prefill = {}, onSaved = null) {
   const types = cols.filter(h => COL.types.includes(h));
   d.innerHTML = `<form class="dialog-body" id="game-form" novalidate>
     <div class="game-top"><h3 class="info-title">${g ? 'Изменить игру' : 'Новая игра'}</h3><button type="button" class="btn icon ghost" id="close" aria-label="Закрыть">✕</button></div>
-    <div class="gf-grid">${cols.filter(h => !COL.types.includes(h) && h !== COL.sleeves).map(input).join('')}</div>
+    <div class="gf-grid">${cols.filter(h => !COL.types.includes(h) && h !== COL.sleeves && h !== COL.first).map(input).join('')}</div>
     ${cols.includes(COL.sleeves) ? `<label class="check"><input type="checkbox" data-col="${esc(COL.sleeves)}" ${num(val(COL.sleeves)) === 1 ? 'checked' : ''}> Карты в протекторах</label>` : ''}
+    ${cols.includes(COL.first) ? `<label class="check"><input type="checkbox" data-col="${esc(COL.first)}" ${num(val(COL.first)) === 1 ? 'checked' : ''}> Упаковать в протекторы в первую очередь</label>` : ''}
     ${types.length ? `<div class="field"><span>Режим</span><div class="gf-types">${types.map(h => `<label class="check"><input type="checkbox" data-col="${esc(h)}" ${num(val(h)) === 1 ? 'checked' : ''}> ${esc(typeLabel(h))}</label>`).join('')}</div></div>` : ''}
     <div class="muted hint">* — обязательное поле, остальные можно заполнить позже.</div>
     <div class="form-error" id="gf-error" role="alert"></div>
@@ -866,7 +869,7 @@ function gameCard(g) {
 function showGame(g) {
   openGame = g;
   const name = String(g[COL.name]).trim(), link = String(g[COL.link] ?? ''), r = ratingOf(name), last = lastPlayed(name);
-  const onCard = new Set([COL.name, COL.min, COL.max, COL.time, COL.link, COL.rules, COL.cover, COL.place, COL.sleeves, COL.cards, COL.weight, PLAYS.count, ...COL.types]);
+  const onCard = new Set([COL.name, COL.min, COL.max, COL.time, COL.link, COL.rules, COL.cover, COL.place, COL.sleeves, COL.first, COL.cards, COL.weight, PLAYS.count, ...COL.types]);
   const extra = Object.entries(g).filter(([k, v]) => !onCard.has(k) && String(v ?? '').trim());
   const ratingRows = allPlayers().filter(p => playedBy(name, p.name)).map(p => {  // оценивают только те, кто играл
     const v = r?.by.get(norm(p.name)) ?? 0;
@@ -1402,6 +1405,7 @@ function cardNeeds(g) {
   }
   return need;
 }
+const isFirst = g => num(g[COL.first]) === 1;  // упаковать в первую очередь — подсвечивается на вкладке
 // Протекторы одного названия: какие игры ими упаковать целиком (есть все размеры карт игры) и каким не хватает штук.
 // Игры, уже упакованные в протекторы, не в счёт.
 // shortcut: размеры сравниваются точно — протекторы 63,5×88 не засчитываются картам 63×88; станет мешать — допуск в миллиметр.
@@ -1456,29 +1460,32 @@ const sizeText = k => k.replace('x', '×').replace(/\./g, ',');
 
 // «Сколько докупить»: эти названия не считаются ни запасом, ни вариантом покупки
 const SLEEVES_IGNORED = ['неизвестные', 'неизвестные1', 'неизвестные2'];
-// Сколько докупить марки buy, чтобы упаковать все игры без протекторов: Map { размер => шт. }.
+// Сколько докупить марки buy, чтобы упаковать все игры без протекторов: { plan, first } — Map { размер => шт. };
+// first — часть plan, которая нужна играм «в первую очередь».
 // Каждый размер игры — целиком одним названием: пары «игра, размер» сначала раздаются по запасу других названий,
-// что не поместилось — марке buy (её запас + докупка).
+// что не поместилось — марке buy (её запас + докупка). Игры «в первую очередь» получают запас раньше остальных.
 // shortcut: раздача жадная (крупные пары — в самый тесный подходящий запас) и не всегда наилучшая; станет мешать — полный перебор.
 function buyPlan(buy, groups) {
-  const pairs = new Map();  // размер => [сколько карт этого размера у каждой игры]
-  for (const g of db.games) if (num(g[COL.sleeves]) !== 1) for (const [k, n] of cardNeeds(g)) pairs.set(k, [...(pairs.get(k) ?? []), n]);
-  const plan = new Map();
+  const pairs = new Map();  // размер => [[сколько карт этого размера у игры, в первую ли очередь]]
+  for (const g of db.games) if (num(g[COL.sleeves]) !== 1) for (const [k, n] of cardNeeds(g)) pairs.set(k, [...(pairs.get(k) ?? []), [n, isFirst(g)]]);
+  const plan = new Map(), first = new Map();
   for (const [k, ns] of pairs) {
-    const left = groups.filter(gr => gr !== buy).map(gr => gr.stock.get(k) ?? 0);
-    let rest = 0;
-    for (const n of ns.sort((a, b) => b - a)) {
+    const left = groups.filter(gr => gr !== buy).map(gr => gr.stock.get(k) ?? 0), own = buy.stock.get(k) ?? 0;
+    let rest = 0, restFirst = 0;
+    for (const [n, f] of ns.sort((a, b) => b[1] - a[1] || b[0] - a[0])) {
       const fit = left.reduce((best, v, j) => v >= n && (best < 0 || v < left[best]) ? j : best, -1);
-      if (fit >= 0) left[fit] -= n; else rest += n;
+      if (fit >= 0) left[fit] -= n; else if (f) restFirst += n; else rest += n;
     }
-    if (rest > (buy.stock.get(k) ?? 0)) plan.set(k, rest - (buy.stock.get(k) ?? 0));
+    if (restFirst > own) first.set(k, restFirst - own);
+    if (rest + restFirst > own) plan.set(k, rest + restFirst - own);
   }
-  return plan;
+  return { plan, first };
 }
 // Варианты «докупить одну марку» — по каждому названию, кроме SLEEVES_IGNORED; сначала самые выгодные
 function buyOptions(groups) {
   const usable = groups.filter(gr => !SLEEVES_IGNORED.includes(norm(gr.name)));
-  return usable.map(gr => { const plan = buyPlan(gr, usable); return { gr, plan, total: [...plan.values()].reduce((a, b) => a + b, 0) }; })
+  const sum = m => [...m.values()].reduce((a, b) => a + b, 0);
+  return usable.map(gr => { const { plan, first } = buyPlan(gr, usable); return { gr, plan, first, total: sum(plan), firstTotal: sum(first) }; })
     .sort((a, b) => a.total - b.total || byName(a.gr.name, b.gr.name));
 }
 const planText = (g, plan, sep) => [...cardNeeds(g)].map(([k, n]) => `${n} шт. ${sizeText(k)} — «${plan.get(k).name}»`).join(sep);
@@ -1540,7 +1547,10 @@ function renderSleeves(el) {
   const fold = (key, summary, body, cls = '') => `<details class="sl-games ${cls}" data-open="${esc(key)}"${slOpen.has(key) ? ' open' : ''}><summary>${summary}</summary>${body}</details>`;
   const games = n => `${n} ${plural(n, 'игру', 'игры', 'игр')}`, fmtN = n => n.toLocaleString('ru-RU');
   const bare = db.games.filter(g => num(g[COL.sleeves]) !== 1 && cardNeeds(g).size), cards = bare.reduce((s, g) => s + [...cardNeeds(g).values()].reduce((a, b) => a + b, 0), 0);
-  const options = bare.length ? buyOptions(groups) : [];
+  const options = bare.length ? buyOptions(groups) : [], nFirst = bare.filter(isFirst).length;
+  const hl = (g, html) => isFirst(g) ? `<span class="sl-first">${html}</span>` : html;  // игра «в первую очередь»
+  const chipAttrs = (g, tip) => `class="chip${isFirst(g) ? ' sl-first' : ''}" title="${isFirst(g) ? 'В первую очередь. ' : ''}${tip}"`;
+  const firstN = n => n ? ` <span class="sl-first">(в первую очередь ${fmtN(n)})</span>` : '';
   el.innerHTML = `<form class="card add-row" id="add-sleeve">
       <input name="count" type="number" min="1" step="1" required placeholder="Сколько" aria-label="Сколько протекторов" style="flex:0 1 110px">
       <span class="sl-size">${mmInput('w', '63,5', 'Ширина карты, мм')}×${mmInput('h', '88', 'Высота карты, мм')}</span>
@@ -1549,24 +1559,24 @@ function renderSleeves(el) {
       <button class="btn primary">Добавить</button>
     </form>
     <div class="card sl-card" id="sl-need" style="margin-top:14px"><h3>Сколько докупить</h3>
-      ${!bare.length ? '<div class="muted">Все игры с картами уже в протекторах.</div>' : `<div class="muted hint">Без протекторов ${bare.length} ${plural(bare.length, 'игра', 'игры', 'игр')} — это ${fmtN(cards)} ${plural(cards, 'карта', 'карты', 'карт')}.</div>
-      ${options.map(({ gr, plan, total }) => fold('buy|' + norm(gr.name), total ? `<b>${esc(gr.name)}</b> — докупить ${fmtN(total)} шт.` : `<b>${esc(gr.name)}</b> — хватает, докупать не нужно`,
-        `<div style="margin-top:6px">${[...plan].sort((a, b) => b[1] - a[1]).map(([k, n]) => `${sizeText(k)} — ${fmtN(n)}`).join(', ')}</div>`)).join('') || '<div class="muted">Добавьте протекторы с названием марки — здесь появятся варианты, что докупить.</div>'}`}
+      ${!bare.length ? '<div class="muted">Все игры с картами уже в протекторах.</div>' : `<div class="muted hint">Без протекторов ${bare.length} ${plural(bare.length, 'игра', 'игры', 'игр')} — это ${fmtN(cards)} ${plural(cards, 'карта', 'карты', 'карт')}.${nFirst ? ` <span class="sl-first">В первую очередь — ${nFirst} ${plural(nFirst, 'игра', 'игры', 'игр')}.</span>` : ''}</div>
+      ${options.map(({ gr, plan, first, total, firstTotal }) => fold('buy|' + norm(gr.name), total ? `<b>${esc(gr.name)}</b> — докупить ${fmtN(total)} шт.${firstN(firstTotal)}` : `<b>${esc(gr.name)}</b> — хватает, докупать не нужно`,
+        `<div style="margin-top:6px">${[...plan].sort((a, b) => b[1] - a[1]).map(([k, n]) => `${sizeText(k)} — ${fmtN(n)}${firstN(first.get(k))}`).join(', ')}</div>`)).join('') || '<div class="muted">Добавьте протекторы с названием марки — здесь появятся варианты, что докупить.</div>'}`}
     </div>
     <div class="grid" id="sleeve-list" style="margin-top:14px">${groups.map(gr => {
       const { enough, short } = sleeveFits(gr.stock);
       return `<div class="card sl-card"><h3>${esc(gr.name)}</h3>
         ${gr.rows.map(({ r, i }) => `<div class="sl-row"><span>${esc(r[SLV.size])}</span><input type="number" min="0" step="1" data-i="${i}" value="${num(r[SLV.count])}" aria-label="Сколько: ${esc(gr.name)} ${esc(r[SLV.size])}"><span class="muted">шт.</span><button class="btn icon ghost" data-del="${i}" title="Удалить" aria-label="Удалить ${esc(gr.name)} ${esc(r[SLV.size])}">${ICON.trash}</button></div>`).join('')}
         ${enough.length ? fold(norm(gr.name) + '|fit', `<b>Хватит на ${games(enough.length)}</b>`,
-          `<div class="muted hint">Упаковали игру? Нажмите её — протекторы спишутся из запаса.</div><div class="chips" style="margin-top:6px">${enough.map(g => `<button class="chip" data-pack="${db.games.indexOf(g)}" data-group="${esc(norm(gr.name))}" title="Упаковали — списать протекторы из запаса">${esc(String(g[COL.name]).trim())}</button>`).join('')}</div>`)
+          `<div class="muted hint">Упаковали игру? Нажмите её — протекторы спишутся из запаса.</div><div class="chips" style="margin-top:6px">${enough.map(g => `<button ${chipAttrs(g, 'Упаковали — списать протекторы из запаса')} data-pack="${db.games.indexOf(g)}" data-group="${esc(norm(gr.name))}">${esc(String(g[COL.name]).trim())}</button>`).join('')}</div>`)
           : '<div class="sl-games muted">Целиком упаковать пока нечего</div>'}
-        ${short.length ? fold(norm(gr.name) + '|short', `Не хватает на ${games(short.length)}`, `<div style="margin-top:6px">${short.map(x => `${esc(String(x.g[COL.name]).trim())} — ещё ${x.lack}`).join(', ')}</div>`, 'muted') : ''}
+        ${short.length ? fold(norm(gr.name) + '|short', `Не хватает на ${games(short.length)}`, `<div style="margin-top:6px">${short.map(x => hl(x.g, `${esc(String(x.g[COL.name]).trim())} — ещё ${x.lack}`)).join(', ')}</div>`, 'muted') : ''}
       </div>`;
     }).join('') || '<div class="muted">Протекторов пока нет — добавьте первые.</div>'}
     ${groups.length > 1 ? `<div class="card sl-card"><h3>Смешанные</h3>
       <div class="muted hint">Протекторы разных названий: каждый размер карт игры целиком упаковывается одним названием.</div>
       ${mixed.length ? fold('|mixed', `<b>Хватит на ${games(mixed.length)}</b>`,
-        `<div class="muted hint">Упаковали игру? Нажмите её и выберите, какими протекторами упакован каждый размер, — они спишутся из запаса.</div><div class="chips" style="margin-top:6px">${mixed.map(([g]) => `<button class="chip" data-pack="${db.games.indexOf(g)}" title="Выбрать протекторы для каждого размера">${esc(String(g[COL.name]).trim())}</button>`).join('')}</div>`)
+        `<div class="muted hint">Упаковали игру? Нажмите её и выберите, какими протекторами упакован каждый размер, — они спишутся из запаса.</div><div class="chips" style="margin-top:6px">${mixed.map(([g]) => `<button ${chipAttrs(g, 'Выбрать протекторы для каждого размера')} data-pack="${db.games.indexOf(g)}">${esc(String(g[COL.name]).trim())}</button>`).join('')}</div>`)
         : '<div class="sl-games muted">Пока нечего — ни одной игре не собрать все размеры из разных названий</div>'}
     </div>` : ''}</div>`;
 
